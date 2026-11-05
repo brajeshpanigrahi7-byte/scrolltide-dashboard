@@ -10,33 +10,141 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalyticsRouteImport } from './routes/analytics'
+import { Route as EntryRouteImport } from './routes/entry'
+import { Route as ExitRouteImport } from './routes/exit'
+import { Route as LogsRouteImport } from './routes/logs'
+import { Route as ParkingRouteImport } from './routes/parking'
+import { Route as SensorsRouteImport } from './routes/sensors'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as WorkflowRouteImport } from './routes/workflow'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AnalyticsRoute = AnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EntryRoute = EntryRouteImport.update({
+  id: '/entry',
+  path: '/entry',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ExitRoute = ExitRouteImport.update({
+  id: '/exit',
+  path: '/exit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LogsRoute = LogsRouteImport.update({
+  id: '/logs',
+  path: '/logs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ParkingRoute = ParkingRouteImport.update({
+  id: '/parking',
+  path: '/parking',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SensorsRoute = SensorsRouteImport.update({
+  id: '/sensors',
+  path: '/sensors',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WorkflowRoute = WorkflowRouteImport.update({
+  id: '/workflow',
+  path: '/workflow',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/entry': typeof EntryRoute
+  '/exit': typeof ExitRoute
+  '/logs': typeof LogsRoute
+  '/parking': typeof ParkingRoute
+  '/sensors': typeof SensorsRoute
+  '/settings': typeof SettingsRoute
+  '/workflow': typeof WorkflowRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/entry': typeof EntryRoute
+  '/exit': typeof ExitRoute
+  '/logs': typeof LogsRoute
+  '/parking': typeof ParkingRoute
+  '/sensors': typeof SensorsRoute
+  '/settings': typeof SettingsRoute
+  '/workflow': typeof WorkflowRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analytics': typeof AnalyticsRoute
+  '/entry': typeof EntryRoute
+  '/exit': typeof ExitRoute
+  '/logs': typeof LogsRoute
+  '/parking': typeof ParkingRoute
+  '/sensors': typeof SensorsRoute
+  '/settings': typeof SettingsRoute
+  '/workflow': typeof WorkflowRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/analytics'
+    | '/entry'
+    | '/exit'
+    | '/logs'
+    | '/parking'
+    | '/sensors'
+    | '/settings'
+    | '/workflow'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/analytics'
+    | '/entry'
+    | '/exit'
+    | '/logs'
+    | '/parking'
+    | '/sensors'
+    | '/settings'
+    | '/workflow'
+  id:
+    | '__root__'
+    | '/'
+    | '/analytics'
+    | '/entry'
+    | '/exit'
+    | '/logs'
+    | '/parking'
+    | '/sensors'
+    | '/settings'
+    | '/workflow'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyticsRoute: typeof AnalyticsRoute
+  EntryRoute: typeof EntryRoute
+  ExitRoute: typeof ExitRoute
+  LogsRoute: typeof LogsRoute
+  ParkingRoute: typeof ParkingRoute
+  SensorsRoute: typeof SensorsRoute
+  SettingsRoute: typeof SettingsRoute
+  WorkflowRoute: typeof WorkflowRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +156,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/analytics': {
+      id: '/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AnalyticsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/entry': {
+      id: '/entry'
+      path: '/entry'
+      fullPath: '/entry'
+      preLoaderRoute: typeof EntryRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/exit': {
+      id: '/exit'
+      path: '/exit'
+      fullPath: '/exit'
+      preLoaderRoute: typeof ExitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/logs': {
+      id: '/logs'
+      path: '/logs'
+      fullPath: '/logs'
+      preLoaderRoute: typeof LogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/parking': {
+      id: '/parking'
+      path: '/parking'
+      fullPath: '/parking'
+      preLoaderRoute: typeof ParkingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sensors': {
+      id: '/sensors'
+      path: '/sensors'
+      fullPath: '/sensors'
+      preLoaderRoute: typeof SensorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/workflow': {
+      id: '/workflow'
+      path: '/workflow'
+      fullPath: '/workflow'
+      preLoaderRoute: typeof WorkflowRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyticsRoute: AnalyticsRoute,
+  EntryRoute: EntryRoute,
+  ExitRoute: ExitRoute,
+  LogsRoute: LogsRoute,
+  ParkingRoute: ParkingRoute,
+  SensorsRoute: SensorsRoute,
+  SettingsRoute: SettingsRoute,
+  WorkflowRoute: WorkflowRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
