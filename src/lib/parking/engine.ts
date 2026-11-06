@@ -133,7 +133,7 @@ export function tick(prev: ParkingState, now: number): ParkingState {
     log(s, "exit", "Exit barrier closed (servo 0°)", "info");
   }
 
-  if (!prev.history.length || now - prev.history[prev.history.length - 1].t >= 5000) {
+  if (!prev.history.length || now - prev.history[prev.history.length - 1]!.t >= 5000) {
     s.history = [...prev.history, { t: now, ...counts(s) }].slice(-120);
   }
   return s;

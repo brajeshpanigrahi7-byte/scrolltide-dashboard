@@ -28,3 +28,7 @@ use the editor.
   own key and store it in Secrets.
 - **Secrets.** Lovable manages them. Do not put secret values in the repo.
 <!-- LOVABLE:END -->
+
+## Project rules
+- Parking logic lives in `src/lib/parking/engine.ts` as pure functions mirroring the ESP32 firmware; DEMO MODE runs it, live mode only reads Firebase `/parking` (set `VITE_FIREBASE_DB_URL`). Why: one source of truth for firmware rules, testable in `src/test/parking-engine.test.ts`.
+- Dashboard shell (sidebar/topbar/provider) wraps all routes in `src/routes/__root.tsx`. Why: every page shares live state.

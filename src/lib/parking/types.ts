@@ -20,7 +20,7 @@ export interface LogEvent {
   ts: number;
   category: LogCategory;
   message: string;
-  slot?: number;
+  slot?: number | undefined;
   severity: Severity;
 }
 

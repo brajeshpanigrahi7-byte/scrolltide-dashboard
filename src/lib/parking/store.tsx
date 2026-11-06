@@ -41,7 +41,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
       const now = Date.now();
       const s = createInitialState(now);
       // Two vehicles already parked at boot for a realistic starting picture
-      for (const id of [2, 4]) { const sl = s.slots[id - 1]; sl.irRaw = true; sl.status = "OCCUPIED"; }
+      for (const id of [2, 4]) { const sl = s.slots[id - 1]!; sl.irRaw = true; sl.status = "OCCUPIED"; }
       return s;
     });
     const t = setInterval(() => {
@@ -71,7 +71,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
       if (target) target.irRaw = true;
       return s;
     }),
-    setIr: (slot, present) => mutate((s) => { s.slots[slot - 1].irRaw = present; return s; }),
+    setIr: (slot, present) => mutate((s) => { s.slots[slot - 1]!.irRaw = present; return s; }),
     leaveSlot: (slot) => mutate((s) => {
       const target = slot ? s.slots[slot - 1] : s.slots.find((x) => x.status === "OCCUPIED" && x.irRaw);
       if (target) {
@@ -87,7 +87,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
         s.usOk = !s.usOk;
         log(s, "sensor", s.usOk ? "HC-SR04 communication restored" : "HC-SR04 communication failure (no echo)", s.usOk ? "success" : "error");
       } else {
-        const sl = s.slots[slot - 1];
+        const sl = s.slots[slot - 1]!;
         sl.sensorOk = !sl.sensorOk;
         log(s, "sensor", sl.sensorOk ? `IR sensor ${slot} restored` : `IR sensor ${slot} communication failure`, sl.sensorOk ? "success" : "error", slot);
       }

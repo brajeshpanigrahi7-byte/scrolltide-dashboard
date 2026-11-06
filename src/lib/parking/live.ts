@@ -6,7 +6,7 @@ import type { ParkingState } from "./types";
 export interface LiveConfig { dbUrl: string; authToken?: string }
 
 export function getLiveConfig(): LiveConfig | null {
-  const dbUrl = import.meta.env.VITE_FIREBASE_DB_URL as string | undefined;
+  const dbUrl = import.meta.env["VITE_FIREBASE_DB_URL"] as string | undefined;
   if (!dbUrl) return null;
   return { dbUrl: dbUrl.replace(/\/$/, "") };
 }
@@ -28,7 +28,7 @@ export function mapPayload(p: DevicePayload | null, now: number): ParkingState {
   if (!p) { s.online = false; return s; }
   s.online = !!p.lastSeen && now - p.lastSeen < 15_000;
   p.slots?.slice(0, 5).forEach((x, i) => {
-    Object.assign(s.slots[i], { status: x.status, irRaw: x.ir, reservedUntil: x.reservedUntil ?? null, lastUpdate: x.updated ?? now, sensorOk: x.ok ?? true });
+    Object.assign(s.slots[i]!, { status: x.status, irRaw: x.ir, reservedUntil: x.reservedUntil ?? null, lastUpdate: x.updated ?? now, sensorOk: x.ok ?? true });
   });
   if (p.entry) {
     s.distanceCm = p.entry.distance ?? s.distanceCm; s.usOk = p.entry.usOk ?? true;

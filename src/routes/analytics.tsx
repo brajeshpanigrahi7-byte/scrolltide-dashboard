@@ -30,7 +30,6 @@ function Analytics() {
   ];
   const util = s.slots.map((x) => ({
     slot: `S${x.id}`,
-    pct: s.history.length ? Math.round((s.history.filter((_, i) => i >= 0).length && 0) + 0) : 0,
     events: s.logs.filter((l) => l.slot === x.id && l.category === "slot").length,
   }));
   // Bucket entry/exit events per minute

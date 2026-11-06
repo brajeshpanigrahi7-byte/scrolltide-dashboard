@@ -33,7 +33,7 @@ const tone = {
 } as const;
 export type Tone = keyof typeof tone;
 
-export function Dot({ t, pulse }: { t: Tone; pulse?: boolean }) {
+export function Dot({ t, pulse }: { t: Tone; pulse?: boolean | undefined }) {
   return <span className={cn("inline-block size-2 rounded-full bg-current", tone[t], pulse && "animate-pulse-ring")} />;
 }
 
@@ -66,7 +66,7 @@ const glow: Record<SlotStatus, string> = { FREE: "glow-free", RESERVED: "glow-re
 export function SlotCard({ slot, now, compact }: { slot: Slot; now: number; compact?: boolean }) {
   const t = statusTone[slot.status];
   const remain = slot.reservedUntil ? Math.max(0, Math.ceil((slot.reservedUntil - now) / 1000)) : 0;
-  const [r, g] = GPIO.led[slot.id - 1];
+  const [r, g] = GPIO.led[slot.id - 1] ?? [0, 0];
   return (
     <div className={cn("panel relative flex flex-col overflow-hidden border-2 border-dashed transition-colors duration-500", t === "free" ? "border-free/40" : t === "reserved" ? "border-reserved/50" : "border-occupied/50")}>
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -130,7 +130,7 @@ export function LogList({ logs, limit, empty = "No events yet" }: { logs: LogEve
 export function GateVisual({ open, label }: { open: boolean; label: string }) {
   return (
     <div className="flex items-center gap-4">
-      <div className="relative h-16 w-28 rounded-lg bg-surface-2 p-2">
+      <div className="relative h-16 w-28 overflow-hidden rounded-lg bg-surface-2 p-2">
         <div className="absolute bottom-3 left-3 size-3 rounded-full bg-muted-foreground" />
         <div
           className={cn("absolute bottom-[1.05rem] left-[1.1rem] h-1.5 w-20 origin-left rounded-full transition-transform duration-700", open ? "bg-free" : "bg-occupied")}
