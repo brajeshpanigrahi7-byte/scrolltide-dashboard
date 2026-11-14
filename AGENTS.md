@@ -32,3 +32,6 @@ use the editor.
 ## Project rules
 - Parking logic lives in `src/lib/parking/engine.ts` as pure functions mirroring the ESP32 firmware; DEMO MODE runs it, live mode only reads Firebase `/parking` (set `VITE_FIREBASE_DB_URL`). Why: one source of truth for firmware rules, testable in `src/test/parking-engine.test.ts`.
 - Dashboard shell (sidebar/topbar/provider) wraps all routes in `src/routes/__root.tsx`. Why: every page shares live state.
+- Payment device APIs are TanStack server routes under `/api/public`; authenticate the device or Razorpay signature before privileged access. Why: external callers need stable secure URLs.
+- `parking_sessions` payment status is server-owned; operator RLS permits read-only access and realtime refresh. Consume paid authorization with a row-locked database function. Why: duplicate callbacks or concurrent device polls must never authorize entry twice.
+- Keep payment records separate from Firebase telemetry and the opt-in simulator. Why: payment authorization is not evidence that a physical gate opened.

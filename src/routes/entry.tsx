@@ -5,6 +5,7 @@ import { TIMING } from "@/lib/parking/types";
 import { cn } from "@/lib/utils";
 import { DemoControls } from "@/components/dash/DemoControls";
 import { GateVisual, LogList, Oled, Panel, Pill, QrPanel } from "@/components/dash/kit";
+import { SessionPanel } from "@/components/dash/SessionPanel";
 
 export const Route = createFileRoute("/entry")({
   head: () => ({
@@ -28,7 +29,8 @@ const STAGES = [
 ];
 
 function Entry() {
-  const { state: s } = useParking();
+  const { state: s, mode } = useParking();
+  if (mode === "live") return <SessionPanel entry />;
   const idx = s.entryStage === "full" ? -1 : STAGES.findIndex((st) => st.keys.includes(s.entryStage));
   const detected = s.distanceCm < TIMING.detectCm;
   const pct = Math.min(100, (s.distanceCm / 150) * 100);

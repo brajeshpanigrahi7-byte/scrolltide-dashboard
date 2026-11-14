@@ -92,7 +92,7 @@ function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
       <div className="ml-auto flex items-center gap-2 md:gap-4">
         {mode === "demo"
           ? <span title="No Firebase database configured — showing a simulation of the firmware"><Pill t="warning" pulse>Demo mode</Pill></span>
-          : <span title={liveError ?? "Streaming from Firebase"}><Pill t={liveError ? "error" : "primary"} pulse={!liveError}>Live hardware</Pill></span>}
+          : <span title={liveError ?? "Reading hardware state"}><Pill t={state.online && !liveError ? "primary" : "warning"} pulse={state.online && !liveError}>{state.online && !liveError ? "Live hardware" : "Device offline"}</Pill></span>}
         <span className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex" title="ESP32 heartbeat">
           <Dot t={state.online ? "free" : "error"} pulse={state.online} /> ESP32 {state.online ? "online" : "offline"}
         </span>

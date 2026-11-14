@@ -5,6 +5,7 @@ import { useParking } from "@/lib/parking/store";
 import { Input } from "@/components/ui/input";
 import { LogList, Panel } from "@/components/dash/kit";
 import { cn } from "@/lib/utils";
+import { SessionPanel } from "@/components/dash/SessionPanel";
 
 export const Route = createFileRoute("/logs")({
   head: () => ({
@@ -24,9 +25,10 @@ const FILTERS = [
 ] as const;
 
 function Logs() {
-  const { state: s } = useParking();
+  const { state: s, mode } = useParking();
   const [f, setF] = useState<(typeof FILTERS)[number]["k"]>("all");
   const [q, setQ] = useState("");
+  if (mode === "live") return <SessionPanel />;
   const logs = s.logs.filter((l) =>
     (f === "all" || (f === "warn" ? l.severity === "warning" || l.severity === "error" : l.category === f)) &&
     (!q || l.message.toLowerCase().includes(q.toLowerCase())));

@@ -6,6 +6,7 @@ import { counts, occupancyPct } from "@/lib/parking/engine";
 import { ENTRY_STEPS, EXIT_STEPS } from "@/components/dash/Workflow";
 import { DemoControls } from "@/components/dash/DemoControls";
 import { GateVisual, LogList, Panel, Pill, SlotCard, StatCard, fmtTime } from "@/components/dash/kit";
+import { CollectedTotal, SessionPanel } from "@/components/dash/SessionPanel";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -20,7 +21,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Overview() {
-  const { state: s } = useParking();
+  const { state: s, mode } = useParking();
   const c = counts(s);
   const sensorsOk = s.slots.filter((x) => x.sensorOk).length + (s.usOk ? 1 : 0);
   const chart = s.history.map((h) => ({ time: fmtTime(h.t), Occupied: h.occupied, Reserved: h.reserved, Free: h.free }));
@@ -28,6 +29,7 @@ function Overview() {
   return (
     <div className="space-y-5">
       <DemoControls compact />
+      {mode === "live" && <><CollectedTotal /><SessionPanel /></>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <StatCard label="Total slots" value={5} icon={<ParkingSquare className="size-4" />} sub="IR-monitored bays" />
         <StatCard label="Available" value={c.free} t="free" icon={<CheckCircle2 className="size-4" />} sub="LED green" />
@@ -39,7 +41,8 @@ function Overview() {
         <StatCard label="System" value={sensorsOk === 6 ? "Normal" : "Degraded"} t={sensorsOk === 6 ? "free" : "warning"} icon={<ShieldCheck className="size-4" />} sub={`${sensorsOk}/6 sensors healthy`} />
       </div>
 
-      <Panel title="Parking slots" action={<Link to="/parking" className="text-xs text-primary hover:underline">Open live view →</Link>}>
+      {mode === "live" && !s.online && <p className="text-sm text-warning">ESP32 offline — slot and barrier readings are unavailable.</p>}
+      {(mode === "demo" || s.online) && <><Panel title="Parking slots" action={<Link to="/parking" className="text-xs text-primary hover:underline">Open live view →</Link>}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{s.slots.map((x) => <SlotCard key={x.id} slot={x} now={s.now} compact />)}</div>
       </Panel>
 
@@ -80,6 +83,7 @@ function Overview() {
           <Link to="/workflow" className="mt-3 inline-block text-xs text-primary hover:underline">View diagram →</Link>
         </Panel>
       </div>
+      </>}
     </div>
   );
 }

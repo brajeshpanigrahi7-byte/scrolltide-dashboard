@@ -18,6 +18,9 @@ import { Route as ParkingRouteImport } from './routes/parking'
 import { Route as SensorsRouteImport } from './routes/sensors'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as WorkflowRouteImport } from './routes/workflow'
+import { Route as ApiPublicCreateSessionRouteImport } from './routes/api/public/create-session'
+import { Route as ApiPublicRazorpayWebhookRouteImport } from './routes/api/public/razorpay-webhook'
+import { Route as ApiPublicSessionStatusRouteImport } from './routes/api/public/session-status'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +67,22 @@ const WorkflowRoute = WorkflowRouteImport.update({
   path: '/workflow',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicCreateSessionRoute = ApiPublicCreateSessionRouteImport.update({
+  id: '/api/public/create-session',
+  path: '/api/public/create-session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicRazorpayWebhookRoute =
+  ApiPublicRazorpayWebhookRouteImport.update({
+    id: '/api/public/razorpay-webhook',
+    path: '/api/public/razorpay-webhook',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicSessionStatusRoute = ApiPublicSessionStatusRouteImport.update({
+  id: '/api/public/session-status',
+  path: '/api/public/session-status',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +94,9 @@ export interface FileRoutesByFullPath {
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
+  '/api/public/create-session': typeof ApiPublicCreateSessionRoute
+  '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
+  '/api/public/session-status': typeof ApiPublicSessionStatusRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +108,9 @@ export interface FileRoutesByTo {
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
+  '/api/public/create-session': typeof ApiPublicCreateSessionRoute
+  '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
+  '/api/public/session-status': typeof ApiPublicSessionStatusRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +123,9 @@ export interface FileRoutesById {
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
+  '/api/public/create-session': typeof ApiPublicCreateSessionRoute
+  '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
+  '/api/public/session-status': typeof ApiPublicSessionStatusRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +139,9 @@ export interface FileRouteTypes {
     | '/sensors'
     | '/settings'
     | '/workflow'
+    | '/api/public/create-session'
+    | '/api/public/razorpay-webhook'
+    | '/api/public/session-status'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +153,9 @@ export interface FileRouteTypes {
     | '/sensors'
     | '/settings'
     | '/workflow'
+    | '/api/public/create-session'
+    | '/api/public/razorpay-webhook'
+    | '/api/public/session-status'
   id:
     | '__root__'
     | '/'
@@ -133,6 +167,9 @@ export interface FileRouteTypes {
     | '/sensors'
     | '/settings'
     | '/workflow'
+    | '/api/public/create-session'
+    | '/api/public/razorpay-webhook'
+    | '/api/public/session-status'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +182,9 @@ export interface RootRouteChildren {
   SensorsRoute: typeof SensorsRoute
   SettingsRoute: typeof SettingsRoute
   WorkflowRoute: typeof WorkflowRoute
+  ApiPublicCreateSessionRoute: typeof ApiPublicCreateSessionRoute
+  ApiPublicRazorpayWebhookRoute: typeof ApiPublicRazorpayWebhookRoute
+  ApiPublicSessionStatusRoute: typeof ApiPublicSessionStatusRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,6 +252,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkflowRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/create-session': {
+      id: '/api/public/create-session'
+      path: '/api/public/create-session'
+      fullPath: '/api/public/create-session'
+      preLoaderRoute: typeof ApiPublicCreateSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/razorpay-webhook': {
+      id: '/api/public/razorpay-webhook'
+      path: '/api/public/razorpay-webhook'
+      fullPath: '/api/public/razorpay-webhook'
+      preLoaderRoute: typeof ApiPublicRazorpayWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/session-status': {
+      id: '/api/public/session-status'
+      path: '/api/public/session-status'
+      fullPath: '/api/public/session-status'
+      preLoaderRoute: typeof ApiPublicSessionStatusRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -225,6 +286,9 @@ const rootRouteChildren: RootRouteChildren = {
   SensorsRoute: SensorsRoute,
   SettingsRoute: SettingsRoute,
   WorkflowRoute: WorkflowRoute,
+  ApiPublicCreateSessionRoute: ApiPublicCreateSessionRoute,
+  ApiPublicRazorpayWebhookRoute: ApiPublicRazorpayWebhookRoute,
+  ApiPublicSessionStatusRoute: ApiPublicSessionStatusRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

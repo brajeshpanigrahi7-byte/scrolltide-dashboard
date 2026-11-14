@@ -15,6 +15,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { ParkingProvider } from "@/lib/parking/store";
 import { AppShell } from "@/components/dash/AppShell";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SessionsProvider } from "@/lib/parking/sessions";
 
 function NotFoundComponent() {
   return (
@@ -125,9 +126,11 @@ function RootComponent() {
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <TooltipProvider>
         <ParkingProvider>
+          <SessionsProvider>
           <AppShell>
             <Outlet />
           </AppShell>
+          </SessionsProvider>
         </ParkingProvider>
       </TooltipProvider>
     </QueryClientProvider>

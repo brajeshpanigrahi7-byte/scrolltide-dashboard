@@ -8,6 +8,7 @@ export type Mode = "demo" | "live";
 interface Ctx {
   state: ParkingState;
   mode: Mode;
+  setDemoMode: (demo: boolean) => void;
   liveError: string | null;
   autoDemo: boolean;
   setAutoDemo: (v: boolean) => void;
@@ -26,7 +27,8 @@ const ParkingCtx = createContext<Ctx | null>(null);
 
 export function ParkingProvider({ children }: { children: ReactNode }) {
   const live = getLiveConfig();
-  const mode: Mode = live ? "live" : "demo";
+  const [mode, setMode] = useState<Mode>("live");
+  const setDemoMode = (demo: boolean) => setMode(demo ? "demo" : "live");
   const [state, setState] = useState<ParkingState>(() => createInitialState(0));
   const [liveError, setLiveError] = useState<string | null>(null);
   const [autoDemo, setAutoDemo] = useState(true);
@@ -58,9 +60,15 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
 
   // Live mode: Firebase Realtime Database stream
   useEffect(() => {
-    if (!live) return;
-    return subscribeLive(live, (s) => { setState(s); setLiveError(null); }, (e) => setLiveError(e));
-  }, [live?.dbUrl]);
+    if (mode !== "live") return;
+    const offline = createInitialState(Date.now());
+    offline.online = false; offline.usOk = false; offline.logs = [];
+    offline.oled = ["DEVICE OFFLINE", "WAITING FOR DATA"];
+    offline.slots.forEach((slot) => { slot.sensorOk = false; });
+    setState(offline);
+    if (!live) { setLiveError("Waiting for ESP32 connection"); return; }
+    return subscribeLive(live, (s) => { setState(s); setLiveError(null); }, (e) => { setLiveError(e); setState((s) => ({ ...s, online: false })); });
+  }, [live?.dbUrl, mode]);
 
   const mutate = (fn: (s: ParkingState) => ParkingState) => mode === "demo" && setState((p) => fn({ ...p, slots: p.slots.map((x) => ({ ...x })) }));
 
@@ -114,7 +122,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
   }, [mode, autoDemo]);
 
   return (
-    <ParkingCtx.Provider value={{ state, mode, liveError, autoDemo, setAutoDemo, actions }}>
+    <ParkingCtx.Provider value={{ state, mode, setDemoMode, liveError, autoDemo, setAutoDemo, actions }}>
       {children}
     </ParkingCtx.Provider>
   );

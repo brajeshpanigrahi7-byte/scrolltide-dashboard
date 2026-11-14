@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useParking } from "@/lib/parking/store";
 import { GPIO, QR_TEXT, TIMING } from "@/lib/parking/types";
 import { Panel, Pill } from "@/components/dash/kit";
+import { Switch } from "@/components/ui/switch";
+import { durationOptions } from "@/lib/parking/payments";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -24,11 +26,13 @@ const rows: [string, string | number][] = [
 ];
 
 function SettingsPage() {
-  const { mode, liveError } = useParking();
+  const { mode, liveError, setDemoMode } = useParking();
   return (
     <div className="grid gap-5 lg:grid-cols-2">
+      <Panel title="Dashboard mode"><label className="flex items-center justify-between gap-4">Demo mode · simulated hardware<Switch checked={mode === "demo"} onCheckedChange={setDemoMode} /></label><p className="mt-3 text-sm text-muted-foreground">{mode === "demo" ? "Demo readings are not real payments or entry authorizations." : "Live Razorpay payment sessions. Hardware readings require the ESP32 connection."}</p></Panel>
+      <Panel title="Parking tariff"><div className="grid grid-cols-2 gap-2 text-sm">{durationOptions.map((option) => <div key={option.minutes} className="flex justify-between border-b border-border py-2"><span>{option.minutes} min</span><span>₹{option.amount}</span></div>)}</div></Panel>
       <Panel title="Data source">
-        <div className="flex items-center gap-3">{mode === "demo" ? <Pill t="warning">Demo mode</Pill> : <Pill t="primary">Live · Firebase</Pill>}</div>
+        <div className="flex items-center gap-3">{mode === "demo" ? <Pill t="warning">Demo mode</Pill> : <Pill t={liveError ? "warning" : "primary"}>{liveError ? "Device offline" : "Live · Firebase"}</Pill>}</div>
         <p className="mt-3 text-sm text-muted-foreground">
           {mode === "demo"
             ? "No Firebase Realtime Database URL is configured, so the dashboard runs a faithful simulation of the firmware state machines. Nothing on screen comes from real hardware."

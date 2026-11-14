@@ -4,6 +4,7 @@ import { useParking } from "@/lib/parking/store";
 import { counts, occupancyPct } from "@/lib/parking/engine";
 import { Panel, StatCard, fmtTime } from "@/components/dash/kit";
 import { LogIn, LogOut, Gauge, AlertTriangle } from "lucide-react";
+import { CollectedTotal, SessionPanel } from "@/components/dash/SessionPanel";
 
 export const Route = createFileRoute("/analytics")({
   head: () => ({
@@ -22,6 +23,7 @@ const axis = { tick: { fill: "var(--muted-foreground)", fontSize: 11 } };
 
 function Analytics() {
   const { state: s, mode } = useParking();
+  if (mode === "live") return <div className="space-y-5"><CollectedTotal /><SessionPanel /></div>;
   const c = counts(s);
   const pie = [
     { name: "Free", value: c.free, color: "var(--free)" },
