@@ -14,13 +14,57 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      parking_operators: {
+        Row: {
+          user_id: string
+        }
+        Insert: {
+          user_id: string
+        }
+        Update: {
+          user_id?: string
+        }
+        Relationships: []
+      }
+      parking_sessions: {
+        Row: {
+          amount_inr: number
+          created_at: string
+          id: string
+          paid_at: string | null
+          payment_link_id: string | null
+          short_url: string | null
+          slot: number
+          status: string
+        }
+        Insert: {
+          amount_inr: number
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payment_link_id?: string | null
+          short_url?: string | null
+          slot: number
+          status?: string
+        }
+        Update: {
+          amount_inr?: number
+          created_at?: string
+          id?: string
+          paid_at?: string | null
+          payment_link_id?: string | null
+          short_url?: string | null
+          slot?: number
+          status?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      consume_parking_session: { Args: { p_id: string }; Returns: string }
     }
     Enums: {
       [_ in never]: never
