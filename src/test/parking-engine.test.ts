@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, occupancyPct, pressBoot, tick } from "@/lib/parking/engine";
+import { createInitialState, occupancyPct, triggerExit, tick } from "@/lib/parking/engine";
 
 const run = (s: ReturnType<typeof createInitialState>, from: number, ms: number, cm: number) => {
   for (let t = from + 100; t <= from + ms; t += 100) s = tick({ ...s, distanceCm: cm }, t);
@@ -39,11 +39,11 @@ describe("parking firmware rules", () => {
     expect(s.slots[2]!.status).toBe("OCCUPIED");
   });
 
-  it("BOOT opens exit gate for 5 s", () => {
-    let s = pressBoot(createInitialState(0), 1000);
-    s = run(s, 1000, 4900, 100);
+  it("triggerExit opens exit gate for 60 s", () => {
+    let s = triggerExit(createInitialState(0), 1000);
+    s = run(s, 1000, 59900, 100);
     expect(s.exitServo).toBe(90);
-    s = run(s, 5900, 200, 100);
+    s = run(s, 60900, 200, 100);
     expect(s.exitServo).toBe(0);
   });
 });

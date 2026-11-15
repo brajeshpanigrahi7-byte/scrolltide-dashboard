@@ -26,15 +26,12 @@ export const ENTRY_STEPS: Step[] = [
 ];
 
 export const EXIT_STEPS: Step[] = [
-  { key: "boot", label: "BOOT button pressed (~200 ms)", hw: "GPIO0" },
-  { key: "payment", label: "Simulated payment confirmation" },
-  { key: "oled_ok", label: "OLED: PAYMENT OK / THANK YOU", hw: "OLED" },
-  { key: "beep", label: "Buzzer beeps once", hw: "Buzzer GPIO4" },
-  { key: "open", label: "Exit servo opens", hw: "Servo GPIO27 → 90°" },
-  { key: "countdown", label: "5-second countdown" },
+  { key: "time_over", label: "Session time over" },
+  { key: "signal", label: "Dashboard signals the ESP32", hw: "REST API device-due" },
+  { key: "open", label: "Exit servo opens for 60 s", hw: "Servo GPIO27 → 90°" },
   { key: "closed", label: "Exit servo closes", hw: "Servo GPIO27 → 0°" },
-  { key: "leaves", label: "Vehicle leaves its slot", hw: "IR" },
-  { key: "freed", label: "IR clear 2 s · FREE · LED green", hw: "IR · RGB LED" },
+  { key: "leaves", label: "Vehicle leaves the parking slot", hw: "IR" },
+  { key: "freed", label: "Slot freed · LED green", hw: "IR · RGB LED" },
 ];
 
 function statusFor(steps: Step[], current: string, key: string) {

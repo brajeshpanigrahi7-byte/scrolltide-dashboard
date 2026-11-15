@@ -70,7 +70,7 @@ function Overview() {
 
       <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
         <Panel title="Entry gate"><GateVisual open={s.entryServo === 90} label="GPIO 13" /><p className="mt-3 font-mono text-xs text-muted-foreground">HC-SR04: {s.usOk ? `${s.distanceCm.toFixed(1)} cm` : "FAULT"}</p></Panel>
-        <Panel title="Exit gate"><GateVisual open={s.exitServo === 90} label="GPIO 27" /><p className="mt-3 font-mono text-xs text-muted-foreground">Payment: {s.paymentAt ? `OK at ${fmtTime(s.paymentAt)}` : "awaiting BOOT"}</p></Panel>
+        <Panel title="Exit gate"><GateVisual open={s.exitServo === 90} label="GPIO 27" /><p className="mt-3 font-mono text-xs text-muted-foreground">Exit: {s.exitPhase === "OPEN" ? "Barrier open (60 s)" : "Standby"}</p></Panel>
         <Panel title="Sensor health">
           <div className="flex flex-wrap gap-2">
             {s.slots.map((x) => <Pill key={x.id} t={x.sensorOk ? "free" : "error"}>IR{x.id}</Pill>)}

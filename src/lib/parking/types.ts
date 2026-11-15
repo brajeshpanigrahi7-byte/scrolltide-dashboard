@@ -43,7 +43,7 @@ export interface ParkingState {
   exitServo: 0 | 90;
   exitCloseAt: number | null;
   exitStage: string;
-  bootPressedAt: number | null;
+  exitSignalledAt: number | null;
   paymentAt: number | null;
   oled: [string, string];
   buzzerUntil: number;
@@ -66,12 +66,23 @@ export const TIMING = {
   clearHoldMs: 1_500,
   welcomeMs: 3_000,
   irDebounceMs: 2_000,
-  bootHoldMs: 200,
-  exitOpenMs: 5_000,
+  exitOpenMs: 60_000, // Exit servo opens for 60 s
 } as const;
 
 export const GPIO = {
-  oledSda: 21, oledScl: 22, trig: 5, echo: 18, entryServo: 13, exitServo: 27, buzzer: 4, boot: 0,
+  oledSda: 21,
+  oledScl: 22,
+  trig: 5,
+  echo: 18,
+  entryServo: 13,
+  exitServo: 27,
+  buzzer: 4,
   ir: [34, 35, 36, 39, 32],
-  led: [[25, 26], [33, 14], [16, 17], [19, 12], [15, 2]] as [number, number][],
+  led: [
+    [25, 26],
+    [33, 14],
+    [16, 17],
+    [19, 12],
+    [15, 2],
+  ] as [number, number][],
 };

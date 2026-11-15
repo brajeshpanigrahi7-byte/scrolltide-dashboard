@@ -1,31 +1,64 @@
-// Pure re-implementation of the smart_parking.ino state machines, used by DEMO MODE.
+// Pure re-implementation of the smart_parking state machines, used by DEMO MODE.
 import { TIMING, type LogCategory, type ParkingState, type Severity, type Slot } from "./types";
 
 let logId = 1;
 
 export function createInitialState(now: number): ParkingState {
   const slots: Slot[] = [1, 2, 3, 4, 5].map((id) => ({
-    id, status: "FREE", irRaw: false, irPendingSince: null, reservedUntil: null, lastUpdate: now, sensorOk: true,
+    id,
+    status: "FREE",
+    irRaw: false,
+    irPendingSince: null,
+    reservedUntil: null,
+    lastUpdate: now,
+    sensorOk: true,
   }));
   const s: ParkingState = {
-    now, bootedAt: now, online: true, slots, distanceCm: 120, usOk: true, detectCount: 0,
-    entryPhase: "IDLE", entryServo: 0, assignedSlot: null, qrShownAt: null, clearSince: null, welcomeUntil: null,
-    entryStage: "scan", exitPhase: "IDLE", exitServo: 0, exitCloseAt: null, exitStage: "idle",
-    bootPressedAt: null, paymentAt: null, oled: ["SMART PARKING", "READY"], buzzerUntil: 0,
-    stageTimes: {}, logs: [], counters: { entries: 0, exits: 0, full: 0, irEvents: 0, usDetections: 0 }, history: [],
+    now,
+    bootedAt: now,
+    online: true,
+    slots,
+    distanceCm: 120,
+    usOk: true,
+    detectCount: 0,
+    entryPhase: "IDLE",
+    entryServo: 0,
+    assignedSlot: null,
+    qrShownAt: null,
+    clearSince: null,
+    welcomeUntil: null,
+    entryStage: "scan",
+    exitPhase: "IDLE",
+    exitServo: 0,
+    exitCloseAt: null,
+    exitStage: "idle",
+    exitSignalledAt: null,
+    paymentAt: null,
+    oled: ["SMART PARKING", "READY"],
+    buzzerUntil: 0,
+    stageTimes: {},
+    logs: [],
+    counters: { entries: 0, exits: 0, full: 0, irEvents: 0, usDetections: 0 },
+    history: [],
   };
   for (const st of ["power", "init", "splash", "scan"]) s.stageTimes[st] = now;
-  log(s, "system", "ESP32 booted — OLED splash + double beep", "success");
-  log(s, "system", "System started, scanning 5 parking slots", "info");
+  log(s, "system", "ESP32 online — scanning 5 parking slots", "info");
   return s;
 }
 
-export function log(s: ParkingState, category: LogCategory, message: string, severity: Severity = "info", slot?: number) {
+export function log(
+  s: ParkingState,
+  category: LogCategory,
+  message: string,
+  severity: Severity = "info",
+  slot?: number,
+) {
   s.logs = [{ id: logId++, ts: s.now, category, message, severity, slot }, ...s.logs].slice(0, 300);
 }
 
 function stage(s: ParkingState, key: string, which: "entry" | "exit" = "entry") {
-  if (which === "entry") s.entryStage = key; else s.exitStage = key;
+  if (which === "entry") s.entryStage = key;
+  else s.exitStage = key;
   s.stageTimes[key] = s.now;
 }
 
@@ -40,7 +73,13 @@ export const occupancyPct = (s: Pick<ParkingState, "slots">) => (counts(s).occup
 
 /** Advance all state machines to time `now`. Mutates a clone and returns it. */
 export function tick(prev: ParkingState, now: number): ParkingState {
-  const s: ParkingState = { ...prev, now, slots: prev.slots.map((x) => ({ ...x })), counters: { ...prev.counters }, stageTimes: { ...prev.stageTimes } };
+  const s: ParkingState = {
+    ...prev,
+    now,
+    slots: prev.slots.map((x) => ({ ...x })),
+    counters: { ...prev.counters },
+    stageTimes: { ...prev.stageTimes },
+  };
 
   // ---- IR slots: 2 s stable detection ----
   for (const slot of s.slots) {
@@ -53,9 +92,11 @@ export function tick(prev: ParkingState, now: number): ParkingState {
         slot.lastUpdate = now;
         s.counters.irEvents++;
         if (slot.irRaw) {
-          slot.status = "OCCUPIED"; slot.reservedUntil = null;
+          slot.status = "OCCUPIED";
+          slot.reservedUntil = null;
           log(s, "slot", `Slot ${slot.id} became OCCUPIED — LED red`, "warning", slot.id);
-          if (s.assignedSlot === slot.id || s.entryStage === "welcome" || s.entryStage === "parks") stage(s, "occupied");
+          if (s.assignedSlot === slot.id || s.entryStage === "welcome" || s.entryStage === "parks")
+            stage(s, "occupied");
         } else {
           slot.status = "FREE";
           log(s, "slot", `Slot ${slot.id} became FREE — LED green`, "success", slot.id);
@@ -65,7 +106,9 @@ export function tick(prev: ParkingState, now: number): ParkingState {
     } else slot.irPendingSince = null;
 
     if (slot.status === "RESERVED" && slot.reservedUntil !== null && now >= slot.reservedUntil) {
-      slot.status = "FREE"; slot.reservedUntil = null; slot.lastUpdate = now;
+      slot.status = "FREE";
+      slot.reservedUntil = null;
+      slot.lastUpdate = now;
       log(s, "slot", `Reservation for slot ${slot.id} expired (60 s) — LED green`, "warning", slot.id);
     }
   }
@@ -77,26 +120,47 @@ export function tick(prev: ParkingState, now: number): ParkingState {
       if (!s.usOk) break;
       if (d < TIMING.detectCm) {
         s.detectCount++;
-        if (s.detectCount === 1) { s.entryPhase = "DETECTING"; stage(s, "check_us"); }
+        if (s.detectCount === 1) {
+          s.entryPhase = "DETECTING";
+          stage(s, "check_us");
+        }
       } else s.detectCount = 0;
       break;
     case "DETECTING":
       if (d < TIMING.detectCm) s.detectCount++;
-      else { s.detectCount = 0; s.entryPhase = "IDLE"; stage(s, "scan"); break; }
+      else {
+        s.detectCount = 0;
+        s.entryPhase = "IDLE";
+        stage(s, "scan");
+        break;
+      }
       if (s.detectCount >= TIMING.detectReadings) {
         s.counters.usDetections++;
         stage(s, "detected");
         log(s, "entry", `Vehicle detected at entry (${d.toFixed(1)} cm, 5 readings)`, "info");
         const free = s.slots.find((x) => x.status === "FREE");
         if (!free) {
-          s.entryPhase = "FULL"; s.oled = ["PARKING FULL", "SORRY"]; s.buzzerUntil = now + 900; s.counters.full++;
+          s.entryPhase = "FULL";
+          s.oled = ["PARKING FULL", "SORRY"];
+          s.buzzerUntil = now + 900;
+          s.counters.full++;
           stage(s, "full");
           log(s, "entry", "Parking FULL — three beeps, entry barrier stays closed", "error");
         } else {
-          free.status = "RESERVED"; free.reservedUntil = now + TIMING.reserveMs; free.lastUpdate = now;
-          s.assignedSlot = free.id; s.qrShownAt = now; s.entryServo = 90; s.clearSince = null;
-          s.entryPhase = "GATE_OPEN"; s.oled = [`SLOT ${free.id} - PAY Rs20`, "[ QR CODE ]"]; s.counters.entries++;
-          stage(s, "allocate"); stage(s, "reserve"); stage(s, "qr"); stage(s, "gate_open");
+          free.status = "RESERVED";
+          free.reservedUntil = now + TIMING.reserveMs;
+          free.lastUpdate = now;
+          s.assignedSlot = free.id;
+          s.qrShownAt = now;
+          s.entryServo = 90;
+          s.clearSince = null;
+          s.entryPhase = "GATE_OPEN";
+          s.oled = [`SLOT ${free.id} - PAY Rs20`, "[ QR CODE ]"];
+          s.counters.entries++;
+          stage(s, "allocate");
+          stage(s, "reserve");
+          stage(s, "qr");
+          stage(s, "gate_open");
           log(s, "slot", `Slot ${free.id} reserved for 60 s — LED yellow`, "info", free.id);
           log(s, "entry", `Payment QR displayed on OLED for slot ${free.id}`, "info", free.id);
           log(s, "entry", "Entry barrier opened (servo 90°)", "success", free.id);
@@ -105,32 +169,54 @@ export function tick(prev: ParkingState, now: number): ParkingState {
       break;
     case "GATE_OPEN":
       if (d > TIMING.clearCm) {
-        if (s.clearSince === null) { s.clearSince = now; stage(s, "passes"); }
+        if (s.clearSince === null) {
+          s.clearSince = now;
+          stage(s, "passes");
+        }
       } else s.clearSince = null;
-      if (s.clearSince !== null && now - s.clearSince >= TIMING.clearHoldMs && s.qrShownAt !== null && now - s.qrShownAt >= TIMING.minQrMs) {
+      if (
+        s.clearSince !== null &&
+        now - s.clearSince >= TIMING.clearHoldMs &&
+        s.qrShownAt !== null &&
+        now - s.qrShownAt >= TIMING.minQrMs
+      ) {
         stage(s, "clear");
-        s.entryServo = 0; s.entryPhase = "WELCOME"; s.welcomeUntil = now + TIMING.welcomeMs;
+        s.entryServo = 0;
+        s.entryPhase = "WELCOME";
+        s.welcomeUntil = now + TIMING.welcomeMs;
         s.oled = ["WELCOME!", `GO TO SLOT ${s.assignedSlot}`];
-        stage(s, "gate_close"); stage(s, "welcome");
+        stage(s, "gate_close");
+        stage(s, "welcome");
         log(s, "entry", "Entry barrier closed (servo 0°)", "info", s.assignedSlot ?? undefined);
       }
       break;
     case "WELCOME":
       if (s.welcomeUntil !== null && now >= s.welcomeUntil) {
-        s.entryPhase = "IDLE"; s.welcomeUntil = null; s.detectCount = 0; s.oled = ["SMART PARKING", "READY"];
+        s.entryPhase = "IDLE";
+        s.welcomeUntil = null;
+        s.detectCount = 0;
+        s.oled = ["SMART PARKING", "READY"];
         stage(s, "parks");
       }
       break;
     case "FULL":
-      if (d > TIMING.clearCm) { s.entryPhase = "IDLE"; s.detectCount = 0; s.oled = ["SMART PARKING", "READY"]; stage(s, "scan"); }
+      if (d > TIMING.clearCm) {
+        s.entryPhase = "IDLE";
+        s.detectCount = 0;
+        s.oled = ["SMART PARKING", "READY"];
+        stage(s, "scan");
+      }
       break;
   }
 
-  // ---- Exit: BOOT button ----
+  // ---- Exit: session expiry triggered ----
   if (s.exitPhase === "OPEN" && s.exitCloseAt !== null && now >= s.exitCloseAt) {
-    s.exitPhase = "IDLE"; s.exitServo = 0; s.exitCloseAt = null; s.oled = ["SMART PARKING", "READY"];
+    s.exitPhase = "IDLE";
+    s.exitServo = 0;
+    s.exitCloseAt = null;
+    s.oled = ["SMART PARKING", "READY"];
     stage(s, "closed", "exit");
-    log(s, "exit", "Exit barrier closed (servo 0°)", "info");
+    log(s, "exit", "Exit barrier closed (servo 0° after 60 s)", "info");
   }
 
   if (!prev.history.length || now - prev.history[prev.history.length - 1]!.t >= 5000) {
@@ -139,14 +225,31 @@ export function tick(prev: ParkingState, now: number): ParkingState {
   return s;
 }
 
-/** BOOT button held ~200 ms → simulated payment confirmation + exit gate cycle. */
-export function pressBoot(prev: ParkingState, now: number): ParkingState {
+/** Exit workflow: session time over → dashboard signals ESP32 → exit servo opens for 60 s. */
+export function triggerExit(prev: ParkingState, now: number): ParkingState {
   if (prev.exitPhase === "OPEN") return prev;
-  const s: ParkingState = { ...prev, now, counters: { ...prev.counters, exits: prev.counters.exits + 1 }, stageTimes: { ...prev.stageTimes } };
-  s.bootPressedAt = now; s.paymentAt = now; s.exitPhase = "OPEN"; s.exitServo = 90; s.exitCloseAt = now + TIMING.exitOpenMs;
-  s.oled = ["PAYMENT OK", "THANK YOU"]; s.buzzerUntil = now + 250;
-  for (const k of ["boot", "payment", "oled_ok", "beep", "open", "countdown"]) stage(s, k, "exit");
-  log(s, "exit", "BOOT button pressed — simulated payment confirmation (PAYMENT OK)", "success");
-  log(s, "exit", "Exit barrier opened (servo 90°) for 5 s", "success");
+  const s: ParkingState = {
+    ...prev,
+    now,
+    counters: { ...prev.counters, exits: prev.counters.exits + 1 },
+    stageTimes: { ...prev.stageTimes },
+  };
+  s.exitSignalledAt = now;
+  s.paymentAt = now;
+  s.exitPhase = "OPEN";
+  s.exitServo = 90;
+  s.exitCloseAt = now + TIMING.exitOpenMs; // 60 seconds
+  s.oled = ["SESSION OVER", "GATE OPEN 60S"];
+  s.buzzerUntil = now + 500;
+  for (const k of ["time_over", "signal", "open"]) stage(s, k, "exit");
+  log(
+    s,
+    "exit",
+    "Session time over — dashboard signalled ESP32, exit servo open for 60 s",
+    "success",
+  );
   return s;
 }
+
+// Keep backward compatibility alias if any test imports pressBoot
+export const pressBoot = triggerExit;

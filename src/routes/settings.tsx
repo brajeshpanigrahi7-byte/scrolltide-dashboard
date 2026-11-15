@@ -22,7 +22,7 @@ export const Route = createFileRoute("/settings")({
 
 const rows: [string, string | number][] = [
   ["OLED SDA / SCL", `${GPIO.oledSda} / ${GPIO.oledScl}`], ["HC-SR04 TRIG / ECHO", `${GPIO.trig} / ${GPIO.echo}`],
-  ["Entry servo", GPIO.entryServo], ["Exit servo", GPIO.exitServo], ["Buzzer", GPIO.buzzer], ["BOOT button", GPIO.boot],
+  ["Entry servo", GPIO.entryServo], ["Exit servo", GPIO.exitServo], ["Buzzer", GPIO.buzzer],
   ...GPIO.ir.map((p, i) => [`IR slot ${i + 1}`, p] as [string, number]),
   ...GPIO.led.map(([r, g], i) => [`Slot ${i + 1} LED R / G`, `${r} / ${g}`] as [string, string]),
   ["GPIO 23", "unused"],
@@ -154,7 +154,6 @@ function SettingsPage() {
           <dt className="text-muted-foreground">Clear before close</dt><dd>{TIMING.clearHoldMs / 1000} s</dd>
           <dt className="text-muted-foreground">Welcome screen</dt><dd>{TIMING.welcomeMs / 1000} s</dd>
           <dt className="text-muted-foreground">IR debounce</dt><dd>{TIMING.irDebounceMs / 1000} s</dd>
-          <dt className="text-muted-foreground">BOOT hold</dt><dd>{TIMING.bootHoldMs} ms</dd>
           <dt className="text-muted-foreground">Exit open</dt><dd>{TIMING.exitOpenMs / 1000} s</dd>
           <dt className="text-muted-foreground">QR_TEXT</dt><dd className="break-all text-xs">{QR_TEXT}</dd>
         </dl>

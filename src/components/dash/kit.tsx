@@ -168,7 +168,7 @@ export function QrPanel({ s }: { s: ParkingState }) {
         <dt className="text-muted-foreground">Exit payment</dt><dd>{s.paymentAt ? <Pill t="free">Payment OK</Pill> : <Pill t="muted">Pending</Pill>}</dd>
         <dt className="text-muted-foreground">Confirmed at</dt><dd className="font-mono">{fmtTime(s.paymentAt)}</dd>
         <p className="col-span-2 mt-1 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-          Demonstration QR only. Payment is confirmed by the ESP32 BOOT button (simulated) — no payment gateway verifies it.
+          Demonstration QR only. In live mode, payments are verified via Razorpay webhook.
         </p>
       </dl>
     </div>

@@ -25,7 +25,7 @@ function LiveParking() {
         <div className="rounded-xl bg-background/60 p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 lg:grid-cols-5">{s.slots.map((x) => <SlotCard key={x.id} slot={x} now={s.now} />)}</div>
           <div className="mt-4 flex items-center justify-between rounded-lg border border-dashed border-border px-4 py-3 font-mono text-xs text-muted-foreground">
-            <span>← ENTRY (HC-SR04 + servo 13)</span><span className="hidden sm:inline">DRIVE LANE</span><span>EXIT (BOOT + servo 27) →</span>
+            <span>← ENTRY (HC-SR04 + servo 13)</span><span className="hidden sm:inline">DRIVE LANE</span><span>EXIT (Servo 27 · 60 s) →</span>
           </div>
         </div>
       </Panel>
