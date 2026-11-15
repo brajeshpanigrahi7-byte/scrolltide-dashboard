@@ -15,21 +15,30 @@ export function SessionsProvider({ children }: { children: ReactNode }) {
   const [now, setNow] = useState(0);
   useEffect(() => {
     let active = true;
+    let loadingRows = false;
     const load = async () => {
+      if (loadingRows) return;
+      loadingRows = true;
+      try {
       const { data: auth } = await supabase.auth.getSession();
       if (!active) return;
       setSignedIn(Boolean(auth.session));
-      if (!auth.session) { setRows([]); setLoading(false); return; }
+      if (!auth.session) { setRows([]); setError(null); setLoading(false); return; }
       const operator = await supabase.from("parking_operators").select("user_id").eq("user_id", auth.session.user.id).maybeSingle();
-      if (!operator.data) { setError("Your account needs operator access."); setLoading(false); return; }
+      if (!active) return;
+      if (operator.error || !operator.data) { setRows([]); setError(operator.error ? "Could not verify operator access." : "Your account needs operator access."); setLoading(false); return; }
       const all: ParkingSession[] = [];
       for (let start = 0; ; start += 1000) {
         const result = await supabase.from("parking_sessions").select("*").order("created_at", { ascending: false }).range(start, start + 999);
-        if (result.error) { if (active) setError(result.error.message); break; }
+        if (!active) return;
+        if (result.error) { setRows([]); setError("Could not load parking payments. Retrying shortly."); break; }
         all.push(...result.data);
         if (result.data.length < 1000) { if (active) { setRows(all); setError(null); } break; }
       }
       if (active) { setLoading(false); setNow(Date.now()); }
+      } catch {
+        if (active) { setRows([]); setError("Could not connect to parking payments. Retrying shortly."); setLoading(false); }
+      } finally { loadingRows = false; }
     };
     void load();
     const { data: listener } = supabase.auth.onAuthStateChange((event) => {

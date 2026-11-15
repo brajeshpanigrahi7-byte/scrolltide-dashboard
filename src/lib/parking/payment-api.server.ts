@@ -18,11 +18,13 @@ export async function createSession(request: Request) {
     const response = await fetch("https://api.razorpay.com/v1/payment_links", {
       method: "POST", headers: { Authorization: `Basic ${btoa(`${keyId}:${keySecret}`)}`, "Content-Type": "application/json" },
       body: JSON.stringify({ amount: session.amount_inr * 100, currency: "INR", reference_id: session.id, description: `Parking slot ${session.slot}`, expire_by: Math.floor(Date.parse(session.created_at) / 1000) + 900, accept_partial: false }),
+      signal: AbortSignal.timeout(15000),
     });
     if (!response.ok) {
-      const detail = await response.text(); console.error("Razorpay create-link failed", response.status, detail);
+      // Provider responses may contain account information; never echo them to callers or logs.
+      console.error("Razorpay create-link failed", response.status);
       await supabaseAdmin.from("parking_sessions").update({ status: "expired" }).eq("id", session.id);
-      return json({ error: "Razorpay could not create the payment link", provider_status: response.status, detail }, 502);
+      return json({ error: "Razorpay could not create the payment link" }, 502);
     }
     const link = z.object({ id: z.string().startsWith("plink_"), short_url: z.string().url() }).parse(await response.json());
     if (!link.short_url.startsWith("https://")) throw new Error("Invalid payment URL");
@@ -30,7 +32,7 @@ export async function createSession(request: Request) {
     if (saved.error) throw new Error("Payment link could not be saved");
     return json({ session_id: session.id, short_url: link.short_url });
   } catch (error) {
-    console.error("Parking payment creation failed", error instanceof Error ? error.message : "Unknown error");
+    console.error("Parking payment creation interrupted");
     return json({ error: "Payment creation interrupted; check the session before retrying", session_id: session.id }, 502);
   }
 }
@@ -39,8 +41,11 @@ export async function razorpayWebhook(request: Request) {
   const raw = await request.text();
   if (!process.env['RAZORPAY_WEBHOOK_SECRET']) return json({ error: "Webhook is not configured" }, 503);
   if (!validWebhook(raw, request.headers.get("x-razorpay-signature"), process.env['RAZORPAY_WEBHOOK_SECRET'])) return json({ error: "Invalid signature" }, 401);
-  const body = JSON.parse(raw);
-  if (body.event !== "payment_link.paid") return json({ received: true });
+  let body: unknown;
+  try { body = JSON.parse(raw); } catch { return json({ error: "Invalid payment event" }, 400); }
+  const event = z.object({ event: z.string().min(1).max(100) }).safeParse(body);
+  if (!event.success) return json({ error: "Invalid payment event" }, 400);
+  if (event.data.event !== "payment_link.paid") return json({ received: true });
   const parsed = webhookSchema.safeParse(body);
   if (!parsed.success) return json({ error: "Invalid payment event" }, 400);
   const link = parsed.data.payload.payment_link.entity;
