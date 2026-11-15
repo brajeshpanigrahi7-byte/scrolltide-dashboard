@@ -1,8 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { CreditCard, ExternalLink, RefreshCw } from "lucide-react";
 import { useParking } from "@/lib/parking/store";
 import { GPIO, QR_TEXT, TIMING } from "@/lib/parking/types";
 import { Panel, Pill } from "@/components/dash/kit";
 import { Switch } from "@/components/ui/switch";
+import { Button } from "@/components/ui/button";
 import { durationOptions } from "@/lib/parking/payments";
 
 export const Route = createFileRoute("/settings")({
@@ -27,16 +30,110 @@ const rows: [string, string | number][] = [
 
 function SettingsPage() {
   const { mode, liveError, setDemoMode } = useParking();
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [lastPayUrl, setLastPayUrl] = useState<string | null>(null);
+
+  const handleTestPayment = async () => {
+    setTestLoading(true);
+    setTestError(null);
+    setTestResult(null);
+
+    try {
+      const res = await fetch("/api/test-payment", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create test session");
+
+      const targetUrl = data.short_url || data.pay_url;
+      setLastPayUrl(targetUrl);
+      setTestResult(`Created session ${data.session_id.slice(0, 8)}… with code ${data.code}. Opening pay link…`);
+
+      // Open payment link in a new tab
+      if (targetUrl) {
+        window.open(targetUrl, "_blank", "noopener,noreferrer");
+      }
+    } catch (err: any) {
+      setTestError(err.message || "Test payment failed");
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
   return (
     <div className="grid gap-5 lg:grid-cols-2">
-      <Panel title="Dashboard mode"><label className="flex items-center justify-between gap-4">Demo mode · simulated hardware<Switch checked={mode === "demo"} onCheckedChange={setDemoMode} /></label><p className="mt-3 text-sm text-muted-foreground">{mode === "demo" ? "Demo readings are not real payments or entry authorizations." : "Live Razorpay payment sessions. Hardware readings require the ESP32 connection."}</p></Panel>
-      <Panel title="Parking tariff"><div className="grid grid-cols-2 gap-2 text-sm">{durationOptions.map((option) => <div key={option.minutes} className="flex justify-between border-b border-border py-2"><span>{option.minutes} min</span><span>₹{option.amount}</span></div>)}</div></Panel>
+      <Panel title="Dashboard mode">
+        <label className="flex items-center justify-between gap-4">
+          Demo mode · simulated hardware
+          <Switch checked={mode === "demo"} onCheckedChange={setDemoMode} />
+        </label>
+        <p className="mt-3 text-sm text-muted-foreground">
+          {mode === "demo"
+            ? "Demo readings are not real payments or entry authorizations."
+            : "Live Razorpay payment sessions. Hardware readings require the ESP32 connection."}
+        </p>
+      </Panel>
+
+      <Panel title="Razorpay test payment">
+        <p className="text-sm text-muted-foreground mb-4">
+          Creates a real ₹20 session (Slot 1, 30 min duration) and opens the Razorpay pay link in a new window.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            onClick={handleTestPayment}
+            disabled={testLoading}
+            className="flex items-center gap-2"
+          >
+            {testLoading ? <RefreshCw className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+            Test payment (₹20)
+          </Button>
+          {lastPayUrl && (
+            <Button asChild variant="outline">
+              <a href={lastPayUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink className="size-4 mr-1.5" /> Reopen Pay Link
+              </a>
+            </Button>
+          )}
+        </div>
+        {testResult && (
+          <p className="mt-3 text-xs font-mono text-emerald-400">
+            {testResult}
+          </p>
+        )}
+        {testError && (
+          <p className="mt-3 text-xs text-destructive">
+            {testError}
+          </p>
+        )}
+      </Panel>
+
+      <Panel title="Parking tariff">
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          {durationOptions.map((option) => (
+            <div key={option.minutes} className="flex justify-between border-b border-border py-2">
+              <span>{option.minutes} min</span>
+              <span>₹{option.amount}</span>
+            </div>
+          ))}
+        </div>
+      </Panel>
+
       <Panel title="Data source">
-        <div className="flex items-center gap-3">{mode === "demo" ? <Pill t="warning">Demo mode</Pill> : <Pill t={liveError ? "warning" : "primary"}>{liveError ? "Device offline" : "Live · Firebase"}</Pill>}</div>
+        <div className="flex items-center gap-3">
+          {mode === "demo" ? (
+            <Pill t="warning">Demo mode</Pill>
+          ) : (
+            <Pill t={liveError ? "warning" : "primary"}>
+              {liveError ? "Device offline" : "Live · Firebase"}
+            </Pill>
+          )}
+        </div>
         <p className="mt-3 text-sm text-muted-foreground">
           {mode === "demo"
             ? "No Firebase Realtime Database URL is configured, so the dashboard runs a faithful simulation of the firmware state machines. Nothing on screen comes from real hardware."
-            : liveError ? `Connection issue: ${liveError}` : "Reading the state the ESP32 publishes to /parking."}
+            : liveError
+            ? `Connection issue: ${liveError}`
+            : "Reading the state the ESP32 publishes to /parking."}
         </p>
         <h3 className="mt-5 text-sm font-semibold">Going live</h3>
         <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-sm text-muted-foreground">
@@ -46,6 +143,7 @@ function SettingsPage() {
           <li>Set <span className="font-mono text-foreground">VITE_FIREBASE_DB_URL</span> for the dashboard.</li>
         </ol>
       </Panel>
+
       <Panel title="Firmware timing">
         <dl className="grid grid-cols-2 gap-y-2 font-mono text-sm">
           <dt className="text-muted-foreground">HC-SR04 poll</dt><dd>{TIMING.usIntervalMs} ms</dd>
@@ -61,9 +159,15 @@ function SettingsPage() {
           <dt className="text-muted-foreground">QR_TEXT</dt><dd className="break-all text-xs">{QR_TEXT}</dd>
         </dl>
       </Panel>
+
       <Panel title="GPIO map (ESP32 Dev Module)" className="lg:col-span-2">
         <div className="grid gap-x-8 sm:grid-cols-2 lg:grid-cols-3">
-          {rows.map(([k, v]) => <div key={k} className="flex justify-between border-b border-border py-1.5 text-sm"><span className="text-muted-foreground">{k}</span><span className="font-mono">{v}</span></div>)}
+          {rows.map(([k, v]) => (
+            <div key={k} className="flex justify-between border-b border-border py-1.5 text-sm">
+              <span className="text-muted-foreground">{k}</span>
+              <span className="font-mono">{v}</span>
+            </div>
+          ))}
         </div>
       </Panel>
     </div>

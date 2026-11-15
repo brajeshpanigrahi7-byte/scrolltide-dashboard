@@ -21,6 +21,14 @@ import { Route as WorkflowRouteImport } from './routes/workflow'
 import { Route as ApiPublicCreateSessionRouteImport } from './routes/api/public/create-session'
 import { Route as ApiPublicRazorpayWebhookRouteImport } from './routes/api/public/razorpay-webhook'
 import { Route as ApiPublicSessionStatusRouteImport } from './routes/api/public/session-status'
+import { Route as ApiPublicDeviceSessionRouteImport } from './routes/api/public/device-session'
+import { Route as ApiPublicDevicePollRouteImport } from './routes/api/public/device-poll'
+import { Route as ApiPublicDeviceEventRouteImport } from './routes/api/public/device-event'
+import { Route as ApiPublicDeviceDueRouteImport } from './routes/api/public/device-due'
+import { Route as ApiPublicCreateOrderRouteImport } from './routes/api/public/create-order'
+import { Route as ApiPublicExtendSessionRouteImport } from './routes/api/public/extend-session'
+import { Route as ApiTestPaymentRouteImport } from './routes/api/test-payment'
+import { Route as PCodeRouteImport } from './routes/p/$code'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -83,6 +91,46 @@ const ApiPublicSessionStatusRoute = ApiPublicSessionStatusRouteImport.update({
   path: '/api/public/session-status',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicDeviceSessionRoute = ApiPublicDeviceSessionRouteImport.update({
+  id: '/api/public/device-session',
+  path: '/api/public/device-session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicDevicePollRoute = ApiPublicDevicePollRouteImport.update({
+  id: '/api/public/device-poll',
+  path: '/api/public/device-poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicDeviceEventRoute = ApiPublicDeviceEventRouteImport.update({
+  id: '/api/public/device-event',
+  path: '/api/public/device-event',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicDeviceDueRoute = ApiPublicDeviceDueRouteImport.update({
+  id: '/api/public/device-due',
+  path: '/api/public/device-due',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicCreateOrderRoute = ApiPublicCreateOrderRouteImport.update({
+  id: '/api/public/create-order',
+  path: '/api/public/create-order',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicExtendSessionRoute = ApiPublicExtendSessionRouteImport.update({
+  id: '/api/public/extend-session',
+  path: '/api/public/extend-session',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTestPaymentRoute = ApiTestPaymentRouteImport.update({
+  id: '/api/test-payment',
+  path: '/api/test-payment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PCodeRoute = PCodeRouteImport.update({
+  id: '/p/$code',
+  path: '/p/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -97,6 +145,14 @@ export interface FileRoutesByFullPath {
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
+  '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
+  '/api/public/device-poll': typeof ApiPublicDevicePollRoute
+  '/api/public/device-event': typeof ApiPublicDeviceEventRoute
+  '/api/public/device-due': typeof ApiPublicDeviceDueRoute
+  '/api/public/create-order': typeof ApiPublicCreateOrderRoute
+  '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
+  '/api/test-payment': typeof ApiTestPaymentRoute
+  '/p/$code': typeof PCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -111,6 +167,14 @@ export interface FileRoutesByTo {
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
+  '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
+  '/api/public/device-poll': typeof ApiPublicDevicePollRoute
+  '/api/public/device-event': typeof ApiPublicDeviceEventRoute
+  '/api/public/device-due': typeof ApiPublicDeviceDueRoute
+  '/api/public/create-order': typeof ApiPublicCreateOrderRoute
+  '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
+  '/api/test-payment': typeof ApiTestPaymentRoute
+  '/p/$code': typeof PCodeRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -126,6 +190,14 @@ export interface FileRoutesById {
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
+  '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
+  '/api/public/device-poll': typeof ApiPublicDevicePollRoute
+  '/api/public/device-event': typeof ApiPublicDeviceEventRoute
+  '/api/public/device-due': typeof ApiPublicDeviceDueRoute
+  '/api/public/create-order': typeof ApiPublicCreateOrderRoute
+  '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
+  '/api/test-payment': typeof ApiTestPaymentRoute
+  '/p/$code': typeof PCodeRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -142,6 +214,14 @@ export interface FileRouteTypes {
     | '/api/public/create-session'
     | '/api/public/razorpay-webhook'
     | '/api/public/session-status'
+    | '/api/public/device-session'
+    | '/api/public/device-poll'
+    | '/api/public/device-event'
+    | '/api/public/device-due'
+    | '/api/public/create-order'
+    | '/api/public/extend-session'
+    | '/api/test-payment'
+    | '/p/$code'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -156,6 +236,14 @@ export interface FileRouteTypes {
     | '/api/public/create-session'
     | '/api/public/razorpay-webhook'
     | '/api/public/session-status'
+    | '/api/public/device-session'
+    | '/api/public/device-poll'
+    | '/api/public/device-event'
+    | '/api/public/device-due'
+    | '/api/public/create-order'
+    | '/api/public/extend-session'
+    | '/api/test-payment'
+    | '/p/$code'
   id:
     | '__root__'
     | '/'
@@ -170,6 +258,14 @@ export interface FileRouteTypes {
     | '/api/public/create-session'
     | '/api/public/razorpay-webhook'
     | '/api/public/session-status'
+    | '/api/public/device-session'
+    | '/api/public/device-poll'
+    | '/api/public/device-event'
+    | '/api/public/device-due'
+    | '/api/public/create-order'
+    | '/api/public/extend-session'
+    | '/api/test-payment'
+    | '/p/$code'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -185,6 +281,14 @@ export interface RootRouteChildren {
   ApiPublicCreateSessionRoute: typeof ApiPublicCreateSessionRoute
   ApiPublicRazorpayWebhookRoute: typeof ApiPublicRazorpayWebhookRoute
   ApiPublicSessionStatusRoute: typeof ApiPublicSessionStatusRoute
+  ApiPublicDeviceSessionRoute: typeof ApiPublicDeviceSessionRoute
+  ApiPublicDevicePollRoute: typeof ApiPublicDevicePollRoute
+  ApiPublicDeviceEventRoute: typeof ApiPublicDeviceEventRoute
+  ApiPublicDeviceDueRoute: typeof ApiPublicDeviceDueRoute
+  ApiPublicCreateOrderRoute: typeof ApiPublicCreateOrderRoute
+  ApiPublicExtendSessionRoute: typeof ApiPublicExtendSessionRoute
+  ApiTestPaymentRoute: typeof ApiTestPaymentRoute
+  PCodeRoute: typeof PCodeRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -273,6 +377,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicSessionStatusRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/device-session': {
+      id: '/api/public/device-session'
+      path: '/api/public/device-session'
+      fullPath: '/api/public/device-session'
+      preLoaderRoute: typeof ApiPublicDeviceSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/device-poll': {
+      id: '/api/public/device-poll'
+      path: '/api/public/device-poll'
+      fullPath: '/api/public/device-poll'
+      preLoaderRoute: typeof ApiPublicDevicePollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/device-event': {
+      id: '/api/public/device-event'
+      path: '/api/public/device-event'
+      fullPath: '/api/public/device-event'
+      preLoaderRoute: typeof ApiPublicDeviceEventRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/device-due': {
+      id: '/api/public/device-due'
+      path: '/api/public/device-due'
+      fullPath: '/api/public/device-due'
+      preLoaderRoute: typeof ApiPublicDeviceDueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/create-order': {
+      id: '/api/public/create-order'
+      path: '/api/public/create-order'
+      fullPath: '/api/public/create-order'
+      preLoaderRoute: typeof ApiPublicCreateOrderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/extend-session': {
+      id: '/api/public/extend-session'
+      path: '/api/public/extend-session'
+      fullPath: '/api/public/extend-session'
+      preLoaderRoute: typeof ApiPublicExtendSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/test-payment': {
+      id: '/api/test-payment'
+      path: '/api/test-payment'
+      fullPath: '/api/test-payment'
+      preLoaderRoute: typeof ApiTestPaymentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/p/$code': {
+      id: '/p/$code'
+      path: '/p/$code'
+      fullPath: '/p/$code'
+      preLoaderRoute: typeof PCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -289,6 +449,14 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicCreateSessionRoute: ApiPublicCreateSessionRoute,
   ApiPublicRazorpayWebhookRoute: ApiPublicRazorpayWebhookRoute,
   ApiPublicSessionStatusRoute: ApiPublicSessionStatusRoute,
+  ApiPublicDeviceSessionRoute: ApiPublicDeviceSessionRoute,
+  ApiPublicDevicePollRoute: ApiPublicDevicePollRoute,
+  ApiPublicDeviceEventRoute: ApiPublicDeviceEventRoute,
+  ApiPublicDeviceDueRoute: ApiPublicDeviceDueRoute,
+  ApiPublicCreateOrderRoute: ApiPublicCreateOrderRoute,
+  ApiPublicExtendSessionRoute: ApiPublicExtendSessionRoute,
+  ApiTestPaymentRoute: ApiTestPaymentRoute,
+  PCodeRoute: PCodeRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

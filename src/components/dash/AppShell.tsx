@@ -25,6 +25,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (r) => r.location.pathname });
   useEffect(() => setMobileOpen(false), [path]);
 
+  if (path.startsWith("/p/")) {
+    return <div className="min-h-screen bg-background text-foreground">{children}</div>;
+  }
+
   const nav = (
     <nav className="flex flex-1 flex-col gap-1 p-3">
       {NAV.map(({ to, label, icon: Icon }) => {
