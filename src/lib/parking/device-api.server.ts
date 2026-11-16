@@ -1,18 +1,16 @@
 import { z } from "zod";
 import { sameSecret } from "./payment-security.server";
-import { generateCode, payUrl, sessionIdSchema, RATE_PER_30MIN } from "./payments";
+import { generateCode, payUrl } from "./payments";
 
 const json = (body: unknown, status = 200) =>
   Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 
 function requireDeviceKey(request: Request): Response | null {
-  if (!sameSecret(request.headers.get("x-device-key"), process.env["DEVICE_API_KEY"])) {
-    return json({ error: "Unauthorized" }, 401);
-  }
-  return null;
+  return sameSecret(request.headers.get("x-device-key"), process.env["DEVICE_API_KEY"])
+    ? null
+    : json({ error: "Unauthorized" }, 401);
 }
 
-// ─── 1. POST /api/public/device-session ───
 const deviceSessionSchema = z.object({
   device: z.string().min(1).max(64),
   slot: z.number().int().min(1).max(5),
@@ -21,345 +19,188 @@ const deviceSessionSchema = z.object({
 export async function deviceSession(request: Request) {
   const denied = requireDeviceKey(request);
   if (denied) return denied;
-
   const parsed = deviceSessionSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return json({ error: "Invalid body: need device and slot (1-5)" }, 400);
-
+  if (!parsed.success) return json({ error: "Invalid body" }, 400);
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  // Generate a unique 6-char code using A-Z and 2-9
-  let code: string | null = null;
   for (let attempt = 0; attempt < 5; attempt++) {
-    const candidate = generateCode();
-    const { data } = await supabaseAdmin
-      .from("parking_sessions")
-      .select("id")
-      .eq("code", candidate)
-      .maybeSingle();
-    if (!data) {
-      code = candidate;
-      break;
-    }
-  }
-  if (!code) return json({ error: "Could not generate unique code" }, 500);
-
-  const amount_inr = RATE_PER_30MIN; // ₹20 base rate for initial 30 min
-
-  const { data: session, error } = await supabaseAdmin
-    .from("parking_sessions")
-    .insert({
-      slot: parsed.data.slot,
-      amount_inr,
-      duration_min: 30,
-      status: "awaiting_payment",
-      code,
-    })
-    .select()
-    .single();
-
-  if (error || !session) return json({ error: "Could not create session" }, 500);
-
-  // Log session created to Activity Logs
-  try {
-    await supabaseAdmin.from("activity_logs").insert({
-      device: parsed.data.device,
-      event: "session_created",
-      session_id: session.id,
-      slot: parsed.data.slot,
+    const code = generateCode();
+    const { data: session, error } = await supabaseAdmin.rpc("create_device_session", {
+      p_device: parsed.data.device,
+      p_slot: parsed.data.slot,
+      p_code: code,
     });
-  } catch (e) {
-    console.error("Failed to write session_created log", e);
-  }
-
-  const keyId = process.env["RAZORPAY_KEY_ID"];
-  const keySecret = process.env["RAZORPAY_KEY_SECRET"];
-  let shortUrl: string | null = null;
-
-  if (keyId && keySecret) {
-    // Attempt 1: Razorpay Payment Link
-    // Payment Links need expire_by at least 15 minutes in the future: use now + 30 minutes (integer Unix seconds)
-    // reference_id must be unique, up to 40 chars. amount is an integer in paise.
-    const expire_by = Math.floor(Date.now() / 1000) + 30 * 60; // 30 mins in future
-    const amountPaise = Math.round(amount_inr * 100);
-
-    try {
-      const response = await fetch("https://api.razorpay.com/v1/payment_links", {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${btoa(`${keyId}:${keySecret}`)}`,
-          "Content-Type": "application/json",
+    if (!error && session) {
+      return json(
+        {
+          session_id: session.id,
+          code: session.code,
+          pay_url: payUrl(session.code, process.env["PUBLIC_APP_URL"]),
         },
-        body: JSON.stringify({
-          amount: amountPaise,
-          currency: "INR",
-          accept_partial: false,
-          reference_id: session.id.slice(0, 40),
-          description: `Parking slot ${session.slot}`,
-          expire_by,
-          notes: {
-            session_id: session.id,
-            slot: session.slot,
-            code,
-            device: parsed.data.device,
-          },
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (response.ok) {
-        const link = (await response.json()) as { id: string; short_url: string };
-        shortUrl = link.short_url;
-        await supabaseAdmin
-          .from("parking_sessions")
-          .update({ payment_link_id: link.id, short_url: link.short_url })
-          .eq("id", session.id);
-      } else {
-        // Log Razorpay's full error body in function logs and in Activity Logs
-        const errorBody = await response.text();
-        console.error("Razorpay create-link rejected:", response.status, errorBody);
-
-        try {
-          await supabaseAdmin.from("activity_logs").insert({
-            device: parsed.data.device,
-            event: "link_creation_failed",
-            session_id: session.id,
-            slot: session.slot,
-            meta: { status: response.status, error: errorBody },
-          });
-        } catch (logErr) {
-          console.error("Failed to write link_creation_failed to activity_logs", logErr);
-        }
-
-        // Fallback: Orders API (POST /v1/orders)
-        try {
-          const orderRes = await fetch("https://api.razorpay.com/v1/orders", {
-            method: "POST",
-            headers: {
-              Authorization: `Basic ${btoa(`${keyId}:${keySecret}`)}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              amount: amountPaise,
-              currency: "INR",
-              receipt: session.id.slice(0, 40),
-              notes: {
-                session_id: session.id,
-                slot: session.slot,
-                code,
-                device: parsed.data.device,
-              },
-            }),
-            signal: AbortSignal.timeout(15000),
-          });
-
-          if (orderRes.ok) {
-            const orderData = (await orderRes.json()) as { id: string };
-            await supabaseAdmin
-              .from("parking_sessions")
-              .update({ razorpay_order_id: orderData.id })
-              .eq("id", session.id);
-          } else {
-            const orderError = await orderRes.text();
-            console.error("Razorpay create-order rejected:", orderRes.status, orderError);
-          }
-        } catch (orderErr) {
-          console.error("Razorpay order creation fallback failed", orderErr);
-        }
-      }
-    } catch (linkErr) {
-      console.error("Payment Link creation request threw:", linkErr);
+        201,
+      );
+    }
+    if (error?.message.includes("SLOT_UNAVAILABLE")) {
+      return json({ error: "Slot unavailable" }, 409);
+    }
+    if (error?.code !== "23505") {
+      console.error("Device session creation failed", error?.message);
+      return json({ error: "Could not create session" }, 500);
     }
   }
-
-  // pay_url = https://scrolltide-dashboard.lovable.app/p/<code> and must stay under 53 characters
-  const pay_url = payUrl(code);
-
-  return json({
-    session_id: session.id,
-    code,
-    pay_url,
-    ...(shortUrl ? { short_url: shortUrl } : {}),
-  });
+  return json({ error: "Could not allocate a unique code" }, 500);
 }
 
-// ─── 2. GET /api/public/device-poll?session=<id> ───
 export async function devicePoll(request: Request) {
   const denied = requireDeviceKey(request);
   if (denied) return denied;
-
-  const url = new URL(request.url);
-  const parsed = sessionIdSchema.safeParse(url.searchParams.get("session"));
+  const parsed = z.string().uuid().safeParse(new URL(request.url).searchParams.get("session"));
   if (!parsed.success) return json({ error: "Invalid session ID" }, 400);
-
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
   const { data: session, error } = await supabaseAdmin
-    .from("parking_sessions")
-    .select("status, created_at, duration_min")
+    .from("sessions")
+    .select("id,status,duration_min,expires_at,paid_at")
     .eq("id", parsed.data)
-    .single();
-
+    .maybeSingle();
   if (error || !session) return json({ error: "Unknown session" }, 404);
 
-  // Awaiting_payment older than 10 minutes becomes expired
-  if (
-    session.status === "awaiting_payment" &&
-    Date.now() >= Date.parse(session.created_at) + 10 * 60 * 1000
-  ) {
-    await supabaseAdmin
-      .from("parking_sessions")
-      .update({ status: "expired" })
-      .eq("id", parsed.data)
-      .eq("status", "awaiting_payment");
-    return json({ status: "expired", duration_min: session.duration_min ?? 30 });
+  if (session.status === "pending" && Date.now() >= Date.parse(session.expires_at)) {
+    await supabaseAdmin.from("sessions").update({ status: "expired" }).eq("id", session.id).eq("status", "pending");
+    return json({ status: "expired", duration_min: 0 });
   }
 
-  // status is "pending" while awaiting_payment, "paid" once paid or active, otherwise "expired" or "cancelled"
-  let status: string;
-  if (session.status === "awaiting_payment") {
-    status = "pending";
-  } else if (session.status === "paid" || session.status === "active") {
-    status = "paid";
-  } else if (session.status === "expired") {
-    status = "expired";
-  } else if (session.status === "cancelled") {
-    status = "cancelled";
-  } else {
-    status = session.status;
+  if (session.status === "paid" && session.paid_at && Date.now() >= Date.parse(session.paid_at) + 180_000) {
+    const { data: entered } = await supabaseAdmin.rpc("mark_session_entered", { p_session: session.id });
+    return json({ status: "paid", duration_min: entered?.duration_min ?? session.duration_min });
   }
 
-  return json({ status, duration_min: session.duration_min ?? 30 });
+  const status = session.status === "active" ? "paid" : session.status;
+  return json({ status, duration_min: session.status === "pending" ? 0 : session.duration_min });
 }
 
-// ─── 3. POST /api/public/device-event ───
 const deviceEventSchema = z.object({
   device: z.string().min(1).max(64),
-  event: z.enum(["heartbeat", "slots", "entered", "cancelled"]),
+  event: z.enum(["heartbeat", "slots", "entered", "cancelled", "boot"]),
   session: z.string().uuid().optional(),
   slot: z.number().int().min(1).max(5).optional(),
   occupancy: z.string().regex(/^[01]{5}$/).optional(),
+  state: z.number().int().min(0).max(4).optional(),
+  dist: z.number().min(0).max(10000).optional(),
+  rssi: z.number().int().min(-200).max(0).optional(),
+  uptime: z.number().int().min(0).max(2_000_000_000).optional(),
+  exit_open: z.boolean().optional(),
 });
+
+async function cleanupTelemetry(supabaseAdmin: any) {
+  const { data: settings } = await supabaseAdmin.from("settings").select("telemetry_cleanup_at").eq("id", true).single();
+  const previous = settings?.telemetry_cleanup_at as string | undefined;
+  if (!previous || Date.now() - Date.parse(previous) < 60_000) return;
+  const { data: claimed } = await supabaseAdmin
+    .from("settings")
+    .update({ telemetry_cleanup_at: new Date().toISOString() })
+    .eq("id", true)
+    .eq("telemetry_cleanup_at", previous)
+    .select("id");
+  if (claimed?.length) {
+    await supabaseAdmin.from("device_telemetry").delete().lt("ts", new Date(Date.now() - 86400000).toISOString());
+  }
+}
 
 export async function deviceEvent(request: Request) {
   const denied = requireDeviceKey(request);
   if (denied) return denied;
-
   const parsed = deviceEventSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return json({ error: "Invalid event body" }, 400);
-
-  const { device, event, session, slot, occupancy } = parsed.data;
+  const event = parsed.data;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const now = new Date().toISOString();
 
-  switch (event) {
-    case "heartbeat": {
-      // heartbeat (update ESP32 last-seen)
-      await supabaseAdmin
-        .from("esp32_devices")
-        .upsert({ device, last_seen_at: new Date().toISOString() }, { onConflict: "device" });
-      break;
-    }
-    case "slots": {
-      // slots (occupancy string like "10110" updates the 5 slots live)
-      if (!occupancy) return json({ error: "occupancy required for slots event" }, 400);
-      await supabaseAdmin
-        .from("esp32_devices")
-        .upsert(
-          { device, slot_occupancy: occupancy, last_seen_at: new Date().toISOString() },
-          { onConflict: "device" },
-        );
-      break;
-    }
-    case "entered": {
-      // entered (status active, entered_at = now, ends_at = now + duration_min)
-      if (!session) return json({ error: "session required for entered event" }, 400);
-      const now = new Date();
-      const { data: sess } = await supabaseAdmin
-        .from("parking_sessions")
-        .select("duration_min, status")
-        .eq("id", session)
-        .single();
-      if (!sess) return json({ error: "Unknown session" }, 404);
-      if (sess.status !== "paid") return json({ error: "Session not in paid status" }, 400);
-      const durationMin = sess.duration_min ?? 30;
-      const endsAt = new Date(now.getTime() + durationMin * 60 * 1000);
-      await supabaseAdmin
-        .from("parking_sessions")
-        .update({
-          status: "active",
-          entered_at: now.toISOString(),
-          ends_at: endsAt.toISOString(),
-        })
-        .eq("id", session)
-        .eq("status", "paid");
-      break;
-    }
-    case "cancelled": {
-      if (!session) return json({ error: "session required for cancelled event" }, 400);
-      await supabaseAdmin
-        .from("parking_sessions")
-        .update({ status: "cancelled" })
-        .eq("id", session)
-        .in("status", ["awaiting_payment", "paid"]);
-      break;
+  const { data: previousDevice } = await supabaseAdmin
+    .from("devices").select("entry_state,exit_open").eq("id", event.device).maybeSingle();
+  const { error: deviceError } = await supabaseAdmin.from("devices").upsert({
+    id: event.device,
+    last_seen: now,
+    ...(event.state === undefined ? {} : { entry_state: event.state }),
+    ...(event.rssi === undefined ? {} : { rssi: event.rssi }),
+    ...(event.uptime === undefined ? {} : { uptime_s: event.uptime }),
+    ...(event.exit_open === undefined ? {} : { exit_open: event.exit_open }),
+    ...(event.event === "boot" ? { boot_at: now } : {}),
+  });
+  if (deviceError) return json({ error: "Could not update device" }, 500);
+
+  await supabaseAdmin.from("device_telemetry").insert({
+    device_id: event.device,
+    dist_cm: event.dist ?? null,
+    rssi: event.rssi ?? null,
+    occupancy: event.occupancy ?? null,
+    entry_state: event.state ?? null,
+  });
+
+  if (event.occupancy) {
+    const { data: currentSlots } = await supabaseAdmin.from("slots").select("slot,occupied").order("slot");
+    for (const slot of currentSlots ?? []) {
+      const occupied = event.occupancy[slot.slot - 1] === "1";
+      if (occupied === slot.occupied) continue;
+      await supabaseAdmin.from("slots").update({ occupied, updated_at: now }).eq("slot", slot.slot);
+      await supabaseAdmin.from("activity_logs").insert({
+        device: event.device, event: "slots", device_id: event.device, type: "slot_changed",
+        slot: slot.slot, occupancy: event.occupancy,
+        message: `Slot ${slot.slot} ${occupied ? "occupied" : "free"}`,
+      });
     }
   }
 
-  // Write each to Activity Logs
-  try {
+  if (event.event === "boot") {
     await supabaseAdmin.from("activity_logs").insert({
-      device,
-      event,
-      session_id: session ?? null,
-      slot: slot ?? null,
-      occupancy: occupancy ?? null,
+      device: event.device, event: "boot", device_id: event.device, type: "boot", message: "ESP32 powered on",
     });
-  } catch (e) {
-    console.error("Failed to write to activity_logs", e);
+  }
+  if (event.state === 2 && previousDevice?.entry_state !== 2) {
+    await supabaseAdmin.from("activity_logs").insert({
+      device: event.device, event: "entered", device_id: event.device, type: "entry_gate_opened",
+      session: undefined, session_id: event.session ?? null, slot: event.slot ?? null, message: "Entry barrier opened",
+    });
+  }
+  if (event.exit_open !== undefined && event.exit_open !== previousDevice?.exit_open) {
+    await supabaseAdmin.from("activity_logs").insert({
+      device: event.device, event: "session_expired", device_id: event.device,
+      type: event.exit_open ? "exit_servo_open" : "exit_servo_closed",
+      message: event.exit_open ? "Exit servo opened" : "Exit servo closed",
+    });
   }
 
+  if (event.event === "entered") {
+    if (!event.session) return json({ error: "session required" }, 400);
+    const { error } = await supabaseAdmin.rpc("mark_session_entered", { p_session: event.session });
+    if (error) return json({ error: error.message.includes("NOT_PAID") ? "Session not paid" : "Unknown session" }, 400);
+  }
+  if (event.event === "cancelled") {
+    if (!event.session) return json({ error: "session required" }, 400);
+    const { data } = await supabaseAdmin.from("sessions").update({ status: "cancelled" })
+      .eq("id", event.session).eq("status", "pending").select("id,slot,device_id");
+    if (data?.length) {
+      await supabaseAdmin.from("activity_logs").insert({
+        device: event.device, event: "cancelled", device_id: event.device, type: "cancelled",
+        session_id: event.session, slot: event.slot ?? data[0]!.slot, message: "Pending session cancelled",
+      });
+    }
+  }
+
+  await cleanupTelemetry(supabaseAdmin);
   return json({ ok: true });
 }
 
-// ─── 4. GET /api/public/device-due?device=:device ───
 export async function deviceDue(request: Request) {
   const denied = requireDeviceKey(request);
   if (denied) return denied;
-
-  const url = new URL(request.url);
-  const device = url.searchParams.get("device");
-  if (!device) return json({ error: "device parameter required" }, 400);
-
+  const device = z.string().min(1).max(64).safeParse(new URL(request.url).searchParams.get("device"));
+  if (!device.success) return json({ error: "device parameter required" }, 400);
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-  // exit_open is true when an active session has ends_at <= now and exit_signalled = false;
-  // in the same call set exit_signalled = true and status completed so it is true only once.
-  const { data: exitRows } = await supabaseAdmin.rpc("signal_exit_and_complete");
-  const exitOpen = Array.isArray(exitRows) && exitRows.length > 0;
-
-  if (exitOpen) {
-    const row = exitRows![0]!;
-    try {
-      await supabaseAdmin.from("activity_logs").insert({
-        device,
-        event: "session_expired",
-        session_id: row.session_id,
-        slot: row.slot,
-      });
-    } catch (e) {
-      console.error("Failed to write exit activity_log", e);
-    }
-  }
-
-  // warn_slots = slots of active sessions ending within 10 minutes
-  const warnThreshold = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-  const { data: warnRows } = await supabaseAdmin
-    .from("parking_sessions")
-    .select("slot")
-    .eq("status", "active")
-    .lte("ends_at", warnThreshold)
-    .eq("exit_signalled", false);
-
-  const warnSlots = (warnRows ?? []).map((r) => r.slot);
-
-  return json({ exit_open: exitOpen, warn_slots: warnSlots });
+  const { data: settings } = await supabaseAdmin.from("settings").select("reminder_min").eq("id", true).single();
+  const { data, error } = await supabaseAdmin.rpc("device_due", {
+    p_device: device.data,
+    p_reminder_min: settings?.reminder_min ?? 10,
+  });
+  if (error) return json({ error: "Could not check due sessions" }, 500);
+  return json({ exit_open: data?.[0]?.exit_open ?? false, warn_slots: data?.[0]?.warn_slots ?? [] });
 }
