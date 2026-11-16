@@ -62,86 +62,203 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, [mode]);
 
-  // Live mode: reads ESP32 online/offline and 5 slots from esp32_devices table
+  // Live mode: reads ESP32 online/offline, 5 slots, sessions, telemetry, and logs from Supabase
   useEffect(() => {
     if (mode !== "live") return;
     let active = true;
 
     const pullLiveDevice = async () => {
       try {
-        const { data: device, error } = await supabase
-          .from("esp32_devices")
+        const now = Date.now();
+
+        // 1. Fetch settings
+        const { data: settingsData } = await supabase
+          .from("settings")
           .select("*")
-          .order("last_seen_at", { ascending: false })
+          .eq("id", 1)
+          .maybeSingle();
+
+        const offlineAfterS = settingsData?.offline_after_s ?? 30;
+
+        // 2. Fetch device
+        const { data: devData, error: devErr } = await supabase
+          .from("devices")
+          .select("*")
+          .order("last_seen", { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        if (!active) return;
-        if (error) {
-          setLiveError(error.message);
-          return;
+        let device: any = devData;
+
+        if (devErr && !device) {
+          // Fallback check esp32_devices if legacy
+          const { data: legDevice } = await supabase
+            .from("esp32_devices")
+            .select("*")
+            .order("last_seen_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (legDevice) {
+            device = {
+              id: legDevice.device,
+              last_seen: legDevice.last_seen_at,
+              rssi: -65,
+              uptime_s: 120,
+              entry_state: 0,
+              exit_open: false,
+            };
+          }
         }
 
-        const now = Date.now();
-        const lastSeenMs = device?.last_seen_at ? Date.parse(device.last_seen_at) : 0;
-        // last_seen_at within 30 s = online
-        const isOnline = Boolean(device && now - lastSeenMs <= 30_000);
-        const occupancy = device?.slot_occupancy || "00000";
+        const lastSeenMs = device?.last_seen ? Date.parse(device.last_seen) : 0;
+        const isOnline = Boolean(device && now - lastSeenMs <= offlineAfterS * 1000);
+        const entryStateNum = device?.entry_state ?? 0;
+        const exitOpen = Boolean(device?.exit_open);
 
-        // Also fetch recent activity logs
+        // 3. Fetch slots
+        const { data: slotsData } = await supabase
+          .from("slots")
+          .select("*")
+          .order("slot", { ascending: true });
+
+        // 4. Fetch active & pending sessions
+        const { data: sessionsData } = await supabase
+          .from("sessions")
+          .select("*")
+          .in("status", ["pending", "paid", "active"])
+          .order("created_at", { ascending: false });
+
+        // 5. Fetch telemetry history
+        const { data: telemetryData } = await supabase
+          .from("device_telemetry")
+          .select("*")
+          .order("ts", { ascending: false })
+          .limit(60);
+
+        const latestDistance = telemetryData && telemetryData[0]?.dist_cm != null
+          ? Number(telemetryData[0].dist_cm)
+          : 120;
+
+        // 6. Fetch recent activity logs
         const { data: logsData } = await supabase
           .from("activity_logs")
           .select("*")
-          .order("created_at", { ascending: false })
+          .order("ts", { ascending: false })
           .limit(50);
+
+        // 7. Calculate today's revenue (IST)
+        const offsetMs = 330 * 60 * 1000;
+        const startOfDayIst = Math.floor((now + offsetMs) / 86400000) * 86400000 - offsetMs;
+
+        const { data: paymentsData } = await supabase
+          .from("payments")
+          .select("amount_paise, created_at, status")
+          .eq("status", "captured")
+          .gte("created_at", new Date(startOfDayIst).toISOString());
+
+        const todayRevenueInr = (paymentsData ?? []).reduce(
+          (sum: number, p: any) => sum + Math.round((p.amount_paise || 0) / 100),
+          0
+        );
 
         if (!active) return;
 
-        const mappedLogs: LogEvent[] = (logsData ?? []).map((l, idx) => ({
+        const activeSessions = (sessionsData ?? []).filter((s: any) => s.status === "active");
+        const pendingSession = (sessionsData ?? []).find(
+          (s: any) => s.status === "pending" && Date.parse(s.expires_at) > now
+        );
+
+        const mappedLogs: LogEvent[] = (logsData ?? []).map((l: any, idx: number) => ({
           id: idx + 1,
-          ts: Date.parse(l.created_at),
-          category: (l.event === "entered" ? "entry" : l.event === "slots" ? "slot" : "system") as LogCategory,
-          message:
-            l.event === "heartbeat"
-              ? `ESP32 heartbeat (${l.device})`
-              : l.event === "slots"
-              ? `Occupancy update: ${l.occupancy}`
-              : l.event === "entered"
-              ? `Vehicle entered slot ${l.slot}`
-              : l.event === "session_created"
-              ? `Payment session initiated for slot ${l.slot}`
-              : l.event === "payment_received"
-              ? `Payment confirmed for slot ${l.slot}`
-              : l.event === "session_expired"
-              ? `Session ended for slot ${l.slot} — exit gate opened`
-              : `${l.device}: ${l.event}`,
-          severity: (l.event === "payment_received" || l.event === "session_expired"
-            ? "success"
-            : l.event === "link_creation_failed"
+          ts: Date.parse(l.ts || l.created_at || new Date().toISOString()),
+          category: (l.type === "entered" || l.type === "session_created"
+            ? "entry"
+            : l.type === "exit_opened" || l.type === "leave_now"
+            ? "exit"
+            : l.type === "slot_change"
+            ? "slot"
+            : "system") as LogCategory,
+          message: l.message || `${l.type} event`,
+          severity: (l.type === "needs_refund"
             ? "error"
+            : l.type === "payment_received" || l.type === "exit_opened"
+            ? "success"
+            : l.type === "reminder_sent"
+            ? "warning"
             : "info") as Severity,
           slot: l.slot ?? undefined,
         }));
 
         setState((prev) => {
-          const next = { ...prev, now, online: isOnline };
+          const next = {
+            ...prev,
+            now,
+            online: isOnline,
+            rssi: device?.rssi ?? null,
+            uptime_s: device?.uptime_s ?? null,
+            lastSeenMs,
+            entryStateNum,
+            exitOpen,
+            distanceCm: isOnline ? latestDistance : prev.distanceCm,
+            activeSessions,
+            pendingSession: pendingSession || null,
+            todayRevenueInr,
+            settings: settingsData || null,
+          };
+
           if (mappedLogs.length > 0) next.logs = mappedLogs;
+
+          // Map 5 slots
           next.slots = prev.slots.map((s, idx) => {
-            // slot_occupancy like "10110" = slots 1-5 occupied
-            const isOccupied = occupancy[idx] === "1";
+            const slotNum = idx + 1;
+            const slotDb = slotsData?.find((sd: any) => sd.slot === slotNum);
+            const activeSess = activeSessions.find((as: any) => as.slot === slotNum);
+            const pendingSess = sessionsData?.find(
+              (ps: any) => ps.slot === slotNum && ps.status === "pending" && Date.parse(ps.expires_at) > now
+            );
+
+            let status: "FREE" | "RESERVED" | "OCCUPIED" = "FREE";
+            if (activeSess) {
+              status = "OCCUPIED";
+            } else if (pendingSess) {
+              status = "RESERVED";
+            } else if (slotDb?.occupied) {
+              status = "OCCUPIED";
+            }
+
+            const isOccupied = status === "OCCUPIED";
+            const secondsRemaining = activeSess?.end_time
+              ? Math.max(0, Math.floor((Date.parse(activeSess.end_time) - now) / 1000))
+              : null;
+
             return {
               ...s,
-              status: isOccupied ? "OCCUPIED" : "FREE",
+              status,
               irRaw: isOccupied,
-              lastUpdate: lastSeenMs || now,
+              lastUpdate: slotDb?.updated_at ? Date.parse(slotDb.updated_at) : (lastSeenMs || now),
               sensorOk: true,
+              sessionCode: activeSess?.code || pendingSess?.code || null,
+              vehicleNo: activeSess?.vehicle_no || null,
+              secondsRemaining,
+              endsAt: activeSess?.end_time || null,
+              reservedUntil: pendingSess?.expires_at ? Date.parse(pendingSess.expires_at) : null,
             };
           });
+
+          // OLED display simulation
           next.oled = isOnline
-            ? ["PARKSENSE LIVE", "SYSTEM READY"]
+            ? entryStateNum === 1
+              ? ["WAITING PAYMENT", pendingSession ? `SLOT ${pendingSession.slot}` : "SCAN QR"]
+              : entryStateNum === 2
+              ? ["BARRIER OPEN", "PROCEED TO SLOT"]
+              : entryStateNum === 3
+              ? ["PARKING FULL", "NO FREE SLOTS"]
+              : ["PARKSENSE LIVE", "SYSTEM READY"]
             : ["DEVICE OFFLINE", "WAITING ESP32"];
+
           return next;
         });
+
         setLiveError(null);
       } catch (err: any) {
         if (active) setLiveError(err.message || "Could not read ESP32 device status");
@@ -152,8 +269,20 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
 
     // Subscribe to realtime database updates
     const channel = supabase
-      .channel(`esp32-live-${crypto.randomUUID()}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "esp32_devices" }, () => {
+      .channel(`parksense-realtime-${crypto.randomUUID()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, () => {
+        void pullLiveDevice();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "slots" }, () => {
+        void pullLiveDevice();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "sessions" }, () => {
+        void pullLiveDevice();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "payments" }, () => {
+        void pullLiveDevice();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "device_telemetry" }, () => {
         void pullLiveDevice();
       })
       .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, () => {

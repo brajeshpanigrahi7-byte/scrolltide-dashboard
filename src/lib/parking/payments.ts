@@ -17,7 +17,8 @@ export const durationOptions = Array.from({ length: 10 }, (_, i) => ({
 export type SessionStatus = "awaiting_payment" | "paid" | "active" | "completed" | "expired" | "cancelled";
 
 export function effectiveStatus(s: { status: string; created_at: string }, now: number): string {
-  return s.status === "awaiting_payment" && now >= Date.parse(s.created_at) + PAYMENT_TTL_MS ? "expired" : s.status;
+  const isPending = s.status === "pending" || s.status === "awaiting_payment";
+  return isPending && now >= Date.parse(s.created_at) + 15 * 60 * 1000 ? "expired" : s.status;
 }
 
 export function indiaDayStart(now: number) {
@@ -30,7 +31,7 @@ export function todayCollected(rows: { status: string; paid_at: string | null; a
   return rows
     .filter(
       (s) =>
-        (s.status === "paid" || s.status === "active" || s.status === "completed") &&
+        (s.status === "paid" || s.status === "used" || s.status === "active" || s.status === "completed") &&
         s.paid_at &&
         Date.parse(s.paid_at) >= start &&
         Date.parse(s.paid_at) < start + 86400000,

@@ -8,6 +8,10 @@ export interface Slot {
   reservedUntil: number | null;
   lastUpdate: number;
   sensorOk: boolean;
+  sessionCode?: string | null;
+  vehicleNo?: string | null;
+  secondsRemaining?: number | null;
+  endsAt?: string | null;
 }
 
 export type EntryPhase = "IDLE" | "DETECTING" | "GATE_OPEN" | "WELCOME" | "FULL";
@@ -51,6 +55,16 @@ export interface ParkingState {
   logs: LogEvent[];
   counters: { entries: number; exits: number; full: number; irEvents: number; usDetections: number };
   history: { t: number; free: number; reserved: number; occupied: number }[];
+  rssi?: number | null;
+  uptime_s?: number | null;
+  lastSeenMs?: number | null;
+  entryStateNum?: number;
+  exitOpen?: boolean;
+  activeSessions?: any[];
+  pendingSession?: any | null;
+  todayRevenueInr?: number;
+  settings?: any;
+  telemetryHistory?: { ts: number; dist_cm: number }[];
 }
 
 export const QR_TEXT = "upi://pay?pa=smartparking@upi&am=20&cu=INR";

@@ -12,12 +12,13 @@ import {
   Mail,
   RefreshCw,
   PlusCircle,
-  ExternalLink,
+  LogOut,
+  Bell,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { durationOptions, RATE_PER_30MIN } from "@/lib/parking/payments";
 
 declare global {
   interface Window {
@@ -41,16 +42,22 @@ export const Route = createFileRoute("/p/$code")({
   component: DriverPaymentPage,
 });
 
-interface SessionData {
-  id: string;
-  code: string;
-  slot: number;
-  status: "awaiting_payment" | "paid" | "active" | "completed" | "expired" | "cancelled" | string;
+interface PriceOption {
   duration_min: number;
   amount_inr: number;
-  entered_at: string | null;
-  ends_at: string | null;
-  short_url?: string | null;
+}
+
+interface SessionData {
+  code: string;
+  slot: number;
+  status: "pending" | "paid" | "active" | "completed" | "expired" | "cancelled" | string;
+  duration_min: number;
+  seconds_remaining: number;
+  amount: number;
+  expires_in: number;
+  vehicle_no: string | null;
+  price_options: PriceOption[];
+  price_per_hour: number;
 }
 
 function DriverPaymentPage() {
@@ -59,32 +66,52 @@ function DriverPaymentPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<number>(30);
+  const [vehicleNo, setVehicleNo] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [extending, setExtending] = useState(false);
-  const [now, setNow] = useState(Date.now());
+  const [paying, setPaying] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [paymentSuccessMessage, setPaymentSuccessMessage] = useState<string | null>(null);
+  const [notifiedTenMin, setNotifiedTenMin] = useState(false);
 
-  // Poll clock for countdown
+  // Request browser notification permission once
   useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
   }, []);
 
-  // Fetch session status
   const fetchSession = async () => {
     try {
-      const res = await fetch(`/api/public/session-status?code=${code}`);
-      if (!res.ok) {
-        if (res.status === 404) throw new Error("Parking session not found. Check your code.");
-        throw new Error("Could not load session.");
+      // Try local server route first, fallback to Supabase Edge Function
+      let res = await fetch(`/api/public/session-public?code=${code}`);
+      if (!res.ok && res.status !== 404) {
+        res = await fetch(`https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/session-public?code=${code}`);
       }
+
+      if (!res.ok) {
+        if (res.status === 404) throw new Error("Parking session not found. Please check your QR code.");
+        throw new Error("Could not load session status.");
+      }
+
       const data: SessionData = await res.json();
       setSession(data);
-      if (data.duration_min) setSelectedDuration(data.duration_min);
+      if (data.vehicle_no && !vehicleNo) setVehicleNo(data.vehicle_no);
+
+      // Check 10-minute warning notification
+      if (data.status === "active" && data.seconds_remaining <= 600 && data.seconds_remaining > 0 && !notifiedTenMin) {
+        setNotifiedTenMin(true);
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("ParkSense: 10 Minutes Remaining", {
+            body: `Your parking session for slot ${data.slot} will expire in 10 minutes. Extend now if needed.`,
+            icon: "/favicon.ico",
+          });
+        }
+      }
+
       setError(null);
     } catch (err: any) {
-      setError(err.message || "Error fetching session");
+      setError(err.message || "Failed to fetch session");
     } finally {
       setLoading(false);
     }
@@ -92,362 +119,438 @@ function DriverPaymentPage() {
 
   useEffect(() => {
     fetchSession();
-    // Poll every 3 seconds to auto-update status when gate/payment events arrive
-    const pollInterval = setInterval(fetchSession, 3000);
-    return () => clearInterval(pollInterval);
+    const interval = setInterval(fetchSession, 3000);
+    return () => clearInterval(interval);
   }, [code]);
 
-  // Open Razorpay Checkout for Order
-  const handlePay = async () => {
-    if (!session) return;
-    setSubmitting(true);
+  // Open Razorpay Checkout
+  const handlePayment = async (durationMin: number, kind: "new" | "extend" = "new") => {
+    setPaying(true);
     setError(null);
-
     try {
-      const res = await fetch("/api/public/create-order", {
+      let orderRes = await fetch("/api/public/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code,
-          duration_min: selectedDuration,
-          driver_email: email.trim() || undefined,
-          driver_phone: phone.trim() || undefined,
+          duration_min: durationMin,
+          kind,
+          vehicle_no: vehicleNo.trim() || undefined,
+          contact_email: email.trim() || undefined,
+          contact_phone: phone.trim() || undefined,
         }),
       });
 
-      const orderData = await res.json();
-      if (!res.ok) throw new Error(orderData.error || "Order creation failed.");
-
-      if (window.Razorpay && orderData.order_id && orderData.key_id) {
-        const rzp = new window.Razorpay({
-          key: orderData.key_id,
-          amount: orderData.amount,
-          currency: orderData.currency || "INR",
-          name: "ParkSense Smart Parking",
-          description: `Slot ${orderData.slot} · ${selectedDuration} min parking`,
-          order_id: orderData.order_id,
-          prefill: {
-            email: email.trim() || undefined,
-            contact: phone.trim() || undefined,
-          },
-          theme: { color: "#10b981" },
-          handler: () => {
-            // Webhook will set status to paid; immediately trigger a poll
-            setTimeout(fetchSession, 1000);
-          },
+      if (!orderRes.ok) {
+        orderRes = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            code,
+            duration_min: durationMin,
+            kind,
+            vehicle_no: vehicleNo.trim() || undefined,
+            contact_email: email.trim() || undefined,
+            contact_phone: phone.trim() || undefined,
+          }),
         });
-        rzp.open();
-      } else {
-        throw new Error("Razorpay Checkout failed to initialize.");
       }
+
+      if (!orderRes.ok) {
+        const errJson = await orderRes.json().catch(() => ({}));
+        throw new Error(errJson.error || "Failed to initiate payment");
+      }
+
+      const orderData = await orderRes.json();
+
+      if (!window.Razorpay) {
+        throw new Error("Razorpay SDK not loaded. Please refresh.");
+      }
+
+      const options = {
+        key: orderData.key_id,
+        amount: orderData.amount,
+        currency: orderData.currency || "INR",
+        name: "ParkSense",
+        description: `Slot ${session?.slot} — ${durationMin} min`,
+        order_id: orderData.order_id,
+        prefill: {
+          email: email.trim() || undefined,
+          contact: phone.trim() || undefined,
+        },
+        theme: { color: "#22c55e" },
+        handler: async (response: any) => {
+          try {
+            let verifyRes = await fetch("/api/public/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+
+            if (!verifyRes.ok) {
+              verifyRes = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/verify-payment", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                }),
+              });
+            }
+
+            setPaymentSuccessMessage("Payment received, the gate is opening...");
+            fetchSession();
+          } catch (verErr: any) {
+            console.error("Verification error", verErr);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setPaying(false);
+          },
+        },
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
     } catch (err: any) {
-      setError(err.message || "Payment initialization failed.");
-    } finally {
-      setSubmitting(false);
+      setError(err.message || "Payment initiation failed");
+      setPaying(false);
     }
   };
 
-  // Extend Session
-  const handleExtend = async (extraMinutes: 30 | 60) => {
-    if (!session) return;
-    setExtending(true);
-    setError(null);
-
+  // Driver clicks "I'm leaving now"
+  const handleLeaveNow = async () => {
+    if (!confirm("Are you ready to leave now? The exit gate will open for you.")) return;
+    setLeaving(true);
     try {
-      const res = await fetch("/api/public/extend-session", {
+      let res = await fetch("/api/public/leave-now", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          session_id: session.id,
-          extra_minutes: String(extraMinutes),
-        }),
+        body: JSON.stringify({ code }),
       });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not extend session.");
-
-      if (window.Razorpay && data.order_id && data.key_id) {
-        const rzp = new window.Razorpay({
-          key: data.key_id,
-          amount: data.amount,
-          currency: data.currency || "INR",
-          name: "ParkSense Extension",
-          description: data.description,
-          order_id: data.order_id,
-          theme: { color: "#10b981" },
-          handler: () => {
-            setTimeout(fetchSession, 1000);
-          },
+      if (!res.ok) {
+        res = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/leave-now", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
         });
-        rzp.open();
       }
-    } catch (err: any) {
-      setError(err.message || "Extension failed.");
+      fetchSession();
+    } catch (err) {
+      console.error(err);
     } finally {
-      setExtending(false);
+      setLeaving(false);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="flex items-center gap-3 text-muted-foreground">
-          <RefreshCw className="size-5 animate-spin" />
-          <span>Connecting to parking barrier…</span>
-        </div>
-      </div>
-    );
-  }
+  const formatCountdown = (totalSeconds: number) => {
+    const s = Math.max(0, totalSeconds);
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const secs = s % 60;
+    if (hrs > 0) {
+      return `${hrs.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+    }
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
-  if (error && !session) {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="w-full max-w-sm rounded-2xl border border-destructive/20 bg-card p-6 text-center shadow-lg">
-          <AlertTriangle className="mx-auto size-12 text-destructive mb-3" />
-          <h2 className="text-lg font-semibold text-foreground">Session Error</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-          <Button onClick={fetchSession} className="mt-6 w-full" variant="outline">
-            Try Again
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  const amount = (selectedDuration / 30) * RATE_PER_30MIN;
-
-  // Calculate countdown
-  let remainingMs = 0;
-  if (session?.ends_at) {
-    remainingMs = Math.max(0, Date.parse(session.ends_at) - now);
-  }
-  const remainingMinutes = Math.floor(remainingMs / 60000);
-  const remainingSeconds = Math.floor((remainingMs % 60000) / 1000);
+  const durationOptionsList = session?.price_options || [
+    { duration_min: 30, amount_inr: 20 },
+    { duration_min: 60, amount_inr: 40 },
+    { duration_min: 120, amount_inr: 80 },
+    { duration_min: 180, amount_inr: 120 },
+    { duration_min: 240, amount_inr: 160 },
+  ];
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-md flex-col justify-between p-4 sm:p-6 font-sans">
-      {/* Brand Header */}
-      <header className="flex items-center justify-between border-b border-border/40 pb-4">
-        <div className="flex items-center gap-2">
-          <div className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground font-bold shadow-md">
-            P
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 selection:bg-emerald-500/20">
+      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden p-6 space-y-6">
+        {/* Brand header */}
+        <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="size-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <Car className="size-5" />
+            </div>
+            <div>
+              <h1 className="font-semibold tracking-tight text-base">ParkSense</h1>
+              <p className="text-xs text-slate-400">Smart Automated Parking</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-bold tracking-tight">ParkSense</h1>
-            <p className="text-[11px] font-mono text-muted-foreground">Gate Pay & Pass</p>
+          <div className="font-mono text-xs px-2.5 py-1 rounded-md bg-slate-800 text-slate-300 font-medium">
+            {code}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 rounded-full bg-secondary/80 px-3 py-1 text-xs font-mono">
-          <span className="text-muted-foreground">CODE:</span>
-          <span className="font-bold text-foreground">{code}</span>
-        </div>
-      </header>
 
-      {/* Main Content Area */}
-      <main className="my-auto py-6">
-        {/* State 1: Awaiting Payment */}
-        {session?.status === "awaiting_payment" && (
-          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
-            {/* Slot Announcement Card */}
-            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-6 text-center shadow-sm">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                <Car className="size-3.5" /> Barrier Ready
-              </span>
-              <div className="mt-3 text-4xl font-extrabold tracking-tight text-foreground">
-                Slot {session.slot}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Reserved for your vehicle · Rate ₹{RATE_PER_30MIN} / 30 min
-              </p>
+        {loading ? (
+          <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
+            <RefreshCw className="size-6 animate-spin text-emerald-500" />
+            <p className="text-xs font-medium">Loading session...</p>
+          </div>
+        ) : error ? (
+          <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm space-y-2">
+            <div className="flex items-center gap-2 font-medium">
+              <AlertTriangle className="size-4 shrink-0 text-rose-400" />
+              <span>Error</span>
             </div>
-
-            {/* Duration Selector */}
-            <div className="space-y-3">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Select Parking Duration
-              </Label>
-              <div className="grid grid-cols-2 gap-2">
-                {durationOptions.map((opt) => {
-                  const isSelected = selectedDuration === opt.minutes;
-                  return (
-                    <button
-                      key={opt.minutes}
-                      type="button"
-                      onClick={() => setSelectedDuration(opt.minutes)}
-                      className={`flex items-center justify-between rounded-xl border p-3 text-left transition-all ${
-                        isSelected
-                          ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/30"
-                          : "border-border/60 bg-card hover:border-primary/40 text-muted-foreground"
-                      }`}
-                    >
-                      <span className="text-xs font-medium">{opt.minutes} mins</span>
-                      <span className="font-mono text-xs font-bold text-foreground">₹{opt.amount}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Reminder Details (Optional) */}
-            <div className="space-y-3 rounded-2xl border border-border/60 bg-card p-4">
-              <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                <Clock className="size-3.5" /> Expiry Reminders (Optional)
-              </span>
-              <div className="space-y-2">
-                <div className="relative">
-                  <Mail className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    type="email"
-                    placeholder="driver@example.com"
-                    className="pl-9 text-xs"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    type="tel"
-                    placeholder="10-digit mobile number"
-                    className="pl-9 text-xs"
-                    value={phone}
-                    maxLength={10}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {error && <p className="text-center text-xs text-destructive">{error}</p>}
-
-            {/* Payment Button */}
+            <p className="text-xs text-rose-300/90">{error}</p>
             <Button
-              onClick={handlePay}
-              disabled={submitting}
-              className="w-full h-12 text-base font-semibold shadow-md"
+              variant="outline"
+              size="sm"
+              onClick={fetchSession}
+              className="mt-2 text-xs border-rose-500/30 text-rose-300 hover:bg-rose-500/20"
             >
-              {submitting ? (
-                <>
-                  <RefreshCw className="mr-2 size-4 animate-spin" /> Preparing Checkout…
-                </>
-              ) : (
-                <>Pay ₹{amount} & Open Barrier</>
-              )}
+              Retry
             </Button>
           </div>
-        )}
-
-        {/* State 2: Paid (Gate Opening) */}
-        {session?.status === "paid" && (
-          <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-8 text-center animate-in zoom-in-95 duration-500 shadow-xl">
-            <div className="mx-auto mb-4 grid size-16 place-items-center rounded-2xl bg-emerald-500 text-white shadow-lg shadow-emerald-500/20">
-              <CheckCircle2 className="size-10 animate-bounce" />
-            </div>
-            <h2 className="text-2xl font-bold text-foreground">Payment Confirmed!</h2>
-            <p className="mt-3 text-lg font-semibold text-emerald-400">
-              Gate is opening, drive to slot {session.slot}
-            </p>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Please enter within 60 seconds. The entry barrier is raised.
-            </p>
-          </div>
-        )}
-
-        {/* State 3: Active Parking Session */}
-        {session?.status === "active" && (
-          <div className="space-y-6 animate-in fade-in duration-300">
-            {/* Active Card with Countdown */}
-            <div className="rounded-3xl border border-primary/30 bg-card p-6 text-center shadow-lg">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-semibold text-emerald-400">
-                <span className="size-2 rounded-full bg-emerald-400 animate-pulse" /> Parked in Slot {session.slot}
-              </div>
-
-              <div className="mt-6">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Time Remaining
-                </p>
-                <div className="mt-2 font-mono text-5xl font-extrabold tracking-tight text-foreground">
-                  {String(remainingMinutes).padStart(2, "0")}:{String(remainingSeconds).padStart(2, "0")}
+        ) : !session ? null : (
+          <>
+            {/* STATE 1: PENDING */}
+            {session.status === "pending" && (
+              <div className="space-y-5">
+                <div className="rounded-xl bg-slate-800/60 border border-slate-700/50 p-4 text-center">
+                  <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Assigned Slot</p>
+                  <p className="text-4xl font-extrabold text-emerald-400 mt-1">Slot {session.slot}</p>
+                  <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono font-medium">
+                    <Clock className="size-3.5" />
+                    <span>Pay within {formatCountdown(session.expires_in)}</span>
+                  </div>
                 </div>
-              </div>
 
-              {remainingMinutes <= 10 && remainingMs > 0 && (
-                <div className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-warning/15 px-3 py-1.5 text-xs font-medium text-warning">
-                  <AlertTriangle className="size-3.5" /> Ending soon! Extend before time expires.
+                {paymentSuccessMessage && (
+                  <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium text-center">
+                    {paymentSuccessMessage}
+                  </div>
+                )}
+
+                {/* Duration options */}
+                <div className="space-y-2.5">
+                  <Label className="text-xs text-slate-300 font-medium">Select Parking Duration</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {durationOptionsList.map((opt) => (
+                      <button
+                        key={opt.duration_min}
+                        type="button"
+                        onClick={() => setSelectedDuration(opt.duration_min)}
+                        className={`p-3 rounded-xl border text-left transition-all ${
+                          selectedDuration === opt.duration_min
+                            ? "bg-emerald-500/15 border-emerald-500 text-emerald-300 shadow-sm"
+                            : "bg-slate-800/40 border-slate-700/60 text-slate-300 hover:border-slate-600"
+                        }`}
+                      >
+                        <div className="text-xs font-semibold">
+                          {opt.duration_min >= 60 ? `${opt.duration_min / 60} hr` : `${opt.duration_min} min`}
+                        </div>
+                        <div className="text-base font-bold text-slate-100 mt-0.5">₹{opt.amount_inr}</div>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              )}
 
-              {remainingMs === 0 && (
-                <div className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-destructive/15 px-3 py-1.5 text-xs font-medium text-destructive">
-                  <AlertTriangle className="size-3.5" /> Time expired! Exit barrier will open automatically.
+                {/* Optional vehicle number and contact */}
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <Label className="text-xs text-slate-400 font-normal">Vehicle Number (Optional)</Label>
+                    <Input
+                      placeholder="e.g. MH 02 AB 1234"
+                      value={vehicleNo}
+                      onChange={(e) => setVehicleNo(e.target.value.toUpperCase())}
+                      className="mt-1 h-9 bg-slate-800/50 border-slate-700 text-xs uppercase"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs text-slate-400 font-normal">Email (Optional)</Label>
+                      <Input
+                        type="email"
+                        placeholder="For reminder"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="mt-1 h-9 bg-slate-800/50 border-slate-700 text-xs"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs text-slate-400 font-normal">Phone (Optional)</Label>
+                      <Input
+                        type="tel"
+                        placeholder="10 digits"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="mt-1 h-9 bg-slate-800/50 border-slate-700 text-xs"
+                      />
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
 
-            {/* Extend Buttons */}
-            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <PlusCircle className="size-3.5 text-primary" /> Extend Session
-                </span>
-                <span className="text-[11px] text-muted-foreground">Max 5 hours</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
                 <Button
-                  variant="outline"
-                  disabled={extending}
-                  onClick={() => handleExtend(30)}
-                  className="flex flex-col h-14"
+                  onClick={() => handlePayment(selectedDuration, "new")}
+                  disabled={paying}
+                  className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2"
                 >
-                  <span className="text-xs font-bold">+30 Minutes</span>
-                  <span className="text-[10px] text-muted-foreground">₹20</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={extending}
-                  onClick={() => handleExtend(60)}
-                  className="flex flex-col h-14"
-                >
-                  <span className="text-xs font-bold">+60 Minutes</span>
-                  <span className="text-[10px] text-muted-foreground">₹40</span>
+                  {paying ? (
+                    <>
+                      <RefreshCw className="size-4 animate-spin" />
+                      <span>Processing Payment...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        Pay ₹
+                        {durationOptionsList.find((x) => x.duration_min === selectedDuration)?.amount_inr || 20} with
+                        Razorpay
+                      </span>
+                      <ArrowRight className="size-4" />
+                    </>
+                  )}
                 </Button>
               </div>
-            </div>
-          </div>
+            )}
+
+            {/* STATE 2: PAID (WAITING FOR ENTRY) */}
+            {session.status === "paid" && (
+              <div className="space-y-5 text-center py-4">
+                <div className="size-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+                  <CheckCircle2 className="size-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-slate-100">Gate is Opening!</h2>
+                  <p className="text-sm text-emerald-400 font-medium mt-1">Please drive to Slot {session.slot}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 text-xs text-slate-400 space-y-1">
+                  <p>Your barrier is opening automatically.</p>
+                  <p>Once parked, the parking countdown timer will start.</p>
+                </div>
+              </div>
+            )}
+
+            {/* STATE 3: ACTIVE */}
+            {session.status === "active" && (
+              <div className="space-y-5">
+                {/* 10 minute warning banner */}
+                {session.seconds_remaining <= 600 && session.seconds_remaining > 0 && (
+                  <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2.5">
+                    <Bell className="size-4 shrink-0 text-amber-400 animate-bounce" />
+                    <span>Under 10 minutes remaining! Extend now or prepare to leave.</span>
+                  </div>
+                )}
+
+                <div className="rounded-2xl bg-gradient-to-b from-slate-800/80 to-slate-900 border border-slate-700/80 p-6 text-center space-y-2">
+                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Remaining Time</p>
+                  <p
+                    className={`font-mono text-5xl font-black tracking-tight ${
+                      session.seconds_remaining <= 600 ? "text-amber-400 animate-pulse" : "text-emerald-400"
+                    }`}
+                  >
+                    {formatCountdown(session.seconds_remaining)}
+                  </p>
+                  <div className="pt-2 flex items-center justify-center gap-3 text-xs text-slate-400">
+                    <span className="font-semibold text-slate-300">Slot {session.slot}</span>
+                    <span>•</span>
+                    <span>Total {session.duration_min} min</span>
+                    {session.vehicle_no && (
+                      <>
+                        <span>•</span>
+                        <span className="uppercase text-slate-300">{session.vehicle_no}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Extend buttons */}
+                <div className="space-y-2">
+                  <Label className="text-xs text-slate-400 font-medium">Extend Parking Time</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => handlePayment(30, "extend")}
+                      disabled={paying}
+                      className="h-10 text-xs border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-200"
+                    >
+                      <PlusCircle className="size-3.5 mr-1 text-emerald-400" />
+                      +30 min (₹20)
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => handlePayment(60, "extend")}
+                      disabled={paying}
+                      className="h-10 text-xs border-slate-700 bg-slate-800/50 hover:bg-slate-700 text-slate-200"
+                    >
+                      <PlusCircle className="size-3.5 mr-1 text-emerald-400" />
+                      +60 min (₹40)
+                    </Button>
+                  </div>
+                </div>
+
+                {/* I'm leaving now button */}
+                <div className="pt-1">
+                  <Button
+                    variant="secondary"
+                    onClick={handleLeaveNow}
+                    disabled={leaving}
+                    className="w-full h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 border border-slate-700"
+                  >
+                    <LogOut className="size-3.5 text-amber-400" />
+                    <span>{leaving ? "Signalling exit..." : "I'm leaving now (Open Exit Gate)"}</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* STATE 4: COMPLETED */}
+            {session.status === "completed" && (
+              <div className="space-y-4 text-center py-6">
+                <div className="size-14 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-slate-300 mx-auto">
+                  <CheckCircle2 className="size-7 text-emerald-400" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-100">Parking Completed</h2>
+                  <p className="text-xs text-slate-400 mt-1">Thank you for parking with ParkSense!</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 text-left text-xs space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Slot</span>
+                    <span className="font-semibold text-slate-200">Slot {session.slot}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Total Duration</span>
+                    <span className="font-semibold text-slate-200">{session.duration_min} minutes</span>
+                  </div>
+                  <div className="flex justify-between border-t border-slate-700/60 pt-2">
+                    <span className="text-slate-400">Amount Paid</span>
+                    <span className="font-bold text-emerald-400">₹{session.amount}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* STATE 5: EXPIRED / CANCELLED */}
+            {(session.status === "expired" || session.status === "cancelled") && (
+              <div className="space-y-4 text-center py-6">
+                <div className="size-14 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400 mx-auto">
+                  <AlertTriangle className="size-7" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-slate-100">Session {session.status}</h2>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {session.status === "expired"
+                      ? "The 5-minute payment window has expired. Please scan the QR code at the gate again."
+                      : "This session has been cancelled."}
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
-        {/* State 4: Completed */}
-        {session?.status === "completed" && (
-          <div className="rounded-2xl border border-border bg-card p-6 text-center shadow-md">
-            <CheckCircle2 className="mx-auto size-12 text-primary mb-3" />
-            <h2 className="text-lg font-bold text-foreground">Session Completed</h2>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Thank you for parking with ParkSense at Slot {session.slot}. Have a safe journey!
-            </p>
-          </div>
-        )}
-
-        {/* State 5: Expired or Cancelled */}
-        {(session?.status === "expired" || session?.status === "cancelled") && (
-          <div className="rounded-2xl border border-destructive/20 bg-card p-6 text-center shadow-md">
-            <AlertTriangle className="mx-auto size-12 text-destructive mb-3" />
-            <h2 className="text-lg font-bold text-foreground">
-              Session {session.status === "cancelled" ? "Cancelled" : "Expired"}
-            </h2>
-            <p className="mt-2 text-xs text-muted-foreground">
-              This session is no longer active. Pull up to the gate sensor to generate a new QR code.
-            </p>
-          </div>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="pt-4 border-t border-border/40 text-center text-[11px] text-muted-foreground flex items-center justify-between">
-        <span className="flex items-center gap-1">
-          <ShieldCheck className="size-3 text-emerald-400" /> Razorpay Verified
-        </span>
-        <span>ParkSense ESP32</span>
-      </footer>
+        <div className="border-t border-slate-800/80 pt-3 text-center">
+          <p className="text-[11px] text-slate-500">Secured with Razorpay & Supabase Realtime</p>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,113 +1,170 @@
--- Migration 0001: Device API schema evolution
--- Evolves parking_sessions from payment-link to full device/driver flow
+-- ParkSense Smart Parking Schema & Realtime Setup
 
--- 1. Activity Logs table
-CREATE TABLE public.activity_logs (
+-- 1. Devices table
+CREATE TABLE IF NOT EXISTS public.devices (
+  id text PRIMARY KEY,
+  last_seen timestamptz,
+  rssi int,
+  uptime_s int,
+  entry_state int DEFAULT 0,
+  exit_open boolean DEFAULT false,
+  boot_at timestamptz
+);
+
+-- 2. Slots table (slots 1 to 5)
+CREATE TABLE IF NOT EXISTS public.slots (
+  slot int PRIMARY KEY CHECK (slot BETWEEN 1 AND 5),
+  occupied boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Seed slots 1-5 if not present
+INSERT INTO public.slots (slot, occupied, updated_at)
+VALUES (1, false, now()), (2, false, now()), (3, false, now()), (4, false, now()), (5, false, now())
+ON CONFLICT (slot) DO NOTHING;
+
+-- 3. Sessions table
+CREATE TABLE IF NOT EXISTS public.sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  device text NOT NULL,
-  event text NOT NULL CHECK (event IN ('heartbeat','slots','entered','cancelled','session_created','payment_received','session_expired','reminder_sent')),
-  session_id uuid REFERENCES public.parking_sessions(id),
-  slot int CHECK (slot IS NULL OR slot BETWEEN 1 AND 5),
+  code text UNIQUE NOT NULL,
+  device_id text,
+  slot int NOT NULL CHECK (slot BETWEEN 1 AND 5),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'paid', 'active', 'completed', 'expired', 'cancelled')),
+  duration_min int,
+  amount_paise int,
+  vehicle_no text,
+  contact_email text,
+  contact_phone text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL,
+  paid_at timestamptz,
+  entered_at timestamptz,
+  start_time timestamptz,
+  end_time timestamptz,
+  reminder_sent boolean NOT NULL DEFAULT false,
+  exit_signalled_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS sessions_status_idx ON public.sessions (status);
+CREATE INDEX IF NOT EXISTS sessions_code_idx ON public.sessions (code);
+CREATE INDEX IF NOT EXISTS sessions_end_time_idx ON public.sessions (end_time);
+
+-- 4. Payments table
+CREATE TABLE IF NOT EXISTS public.payments (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
+  razorpay_order_id text UNIQUE NOT NULL,
+  razorpay_payment_id text UNIQUE,
+  amount_paise int NOT NULL,
+  kind text NOT NULL CHECK (kind IN ('new', 'extend')),
+  duration_min int NOT NULL,
+  status text NOT NULL DEFAULT 'created' CHECK (status IN ('created', 'captured', 'failed', 'needs_refund')),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS payments_order_idx ON public.payments (razorpay_order_id);
+
+-- 5. Device Telemetry table
+CREATE TABLE IF NOT EXISTS public.device_telemetry (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ts timestamptz NOT NULL DEFAULT now(),
+  device_id text NOT NULL,
+  dist_cm numeric,
+  rssi int,
   occupancy text,
-  meta jsonb DEFAULT '{}',
-  created_at timestamptz NOT NULL DEFAULT now()
+  entry_state int
 );
-CREATE INDEX activity_logs_created_at_idx ON public.activity_logs (created_at DESC);
-CREATE INDEX activity_logs_device_idx ON public.activity_logs (device);
-GRANT SELECT ON public.activity_logs TO authenticated;
-GRANT ALL ON public.activity_logs TO service_role;
+
+CREATE INDEX IF NOT EXISTS device_telemetry_ts_idx ON public.device_telemetry (ts DESC);
+
+-- 6. Activity Logs table
+CREATE TABLE IF NOT EXISTS public.activity_logs (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  ts timestamptz NOT NULL DEFAULT now(),
+  device_id text,
+  type text NOT NULL,
+  slot int,
+  session_id uuid,
+  message text
+);
+
+CREATE INDEX IF NOT EXISTS activity_logs_ts_idx ON public.activity_logs (ts DESC);
+
+-- 7. Device Commands table
+CREATE TABLE IF NOT EXISTS public.device_commands (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  device_id text NOT NULL,
+  command text NOT NULL CHECK (command IN ('open_exit')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  consumed_at timestamptz
+);
+
+-- 8. Settings table (single row)
+CREATE TABLE IF NOT EXISTS public.settings (
+  id int PRIMARY KEY DEFAULT 1,
+  price_per_hour numeric NOT NULL DEFAULT 20,
+  duration_options jsonb NOT NULL DEFAULT '[30, 60, 120, 180, 240]'::jsonb,
+  reminder_min int NOT NULL DEFAULT 10,
+  exit_open_seconds int NOT NULL DEFAULT 60,
+  offline_after_s int NOT NULL DEFAULT 30
+);
+
+INSERT INTO public.settings (id, price_per_hour, duration_options, reminder_min, exit_open_seconds, offline_after_s)
+VALUES (1, 20, '[30, 60, 120, 180, 240]'::jsonb, 10, 60, 30)
+ON CONFLICT (id) DO NOTHING;
+
+-- 9. User Roles table for admin login
+CREATE TABLE IF NOT EXISTS public.user_roles (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL UNIQUE,
+  role text NOT NULL DEFAULT 'admin'
+);
+
+-- Grants & Row Level Security
+ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.slots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.device_telemetry ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
-CREATE POLICY operators_read_logs ON public.activity_logs FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.parking_operators WHERE user_id = auth.uid()));
-ALTER PUBLICATION supabase_realtime ADD TABLE public.activity_logs;
+ALTER TABLE public.device_commands ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 
--- 2. ESP32 Devices table
-CREATE TABLE public.esp32_devices (
-  device text PRIMARY KEY,
-  slot_occupancy text DEFAULT '00000',
-  last_seen_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-GRANT SELECT ON public.esp32_devices TO authenticated;
-GRANT ALL ON public.esp32_devices TO service_role;
-ALTER TABLE public.esp32_devices ENABLE ROW LEVEL SECURITY;
-CREATE POLICY operators_read_devices ON public.esp32_devices FOR SELECT TO authenticated
-  USING (EXISTS (SELECT 1 FROM public.parking_operators WHERE user_id = auth.uid()));
-ALTER PUBLICATION supabase_realtime ADD TABLE public.esp32_devices;
+-- Service role full access
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
--- 3. Evolve parking_sessions
--- Add new columns
-ALTER TABLE public.parking_sessions ADD COLUMN code text UNIQUE;
-ALTER TABLE public.parking_sessions ADD COLUMN duration_min int DEFAULT 30;
-ALTER TABLE public.parking_sessions ADD COLUMN driver_email text;
-ALTER TABLE public.parking_sessions ADD COLUMN driver_phone text;
-ALTER TABLE public.parking_sessions ADD COLUMN entered_at timestamptz;
-ALTER TABLE public.parking_sessions ADD COLUMN ends_at timestamptz;
-ALTER TABLE public.parking_sessions ADD COLUMN exit_signalled boolean DEFAULT false;
-ALTER TABLE public.parking_sessions ADD COLUMN reminder_sent boolean DEFAULT false;
-ALTER TABLE public.parking_sessions ADD COLUMN razorpay_order_id text;
-ALTER TABLE public.parking_sessions ADD COLUMN razorpay_payment_id text;
+-- Authenticated admins can SELECT all tables
+CREATE POLICY admin_select_devices ON public.devices FOR SELECT TO authenticated USING (true);
+CREATE POLICY admin_select_slots ON public.slots FOR SELECT TO authenticated USING (true);
+CREATE POLICY admin_select_sessions ON public.sessions FOR SELECT TO authenticated USING (true);
+CREATE POLICY admin_select_payments ON public.payments FOR SELECT TO authenticated USING (true);
+CREATE POLICY admin_select_telemetry ON public.device_telemetry FOR SELECT TO authenticated USING (true);
+CREATE POLICY admin_select_logs ON public.activity_logs FOR SELECT TO authenticated USING (true);
+CREATE POLICY admin_select_commands ON public.device_commands FOR ALL TO authenticated USING (true);
+CREATE POLICY admin_manage_settings ON public.settings FOR ALL TO authenticated USING (true);
+CREATE POLICY admin_select_roles ON public.user_roles FOR SELECT TO authenticated USING (true);
 
--- Migrate existing status values:  pending -> awaiting_payment, used -> completed
-UPDATE public.parking_sessions SET status = 'awaiting_payment' WHERE status = 'pending';
-UPDATE public.parking_sessions SET status = 'completed' WHERE status = 'used';
-
--- Drop the old check constraint and add the new one
-ALTER TABLE public.parking_sessions DROP CONSTRAINT IF EXISTS parking_sessions_status_check;
-ALTER TABLE public.parking_sessions ADD CONSTRAINT parking_sessions_status_check
-  CHECK (status IN ('awaiting_payment','paid','active','completed','expired','cancelled'));
-
--- Relax amount constraint for extensions (amounts can be multiples of ₹20)
-ALTER TABLE public.parking_sessions DROP CONSTRAINT IF EXISTS parking_sessions_amount_inr_check;
-ALTER TABLE public.parking_sessions ADD CONSTRAINT parking_sessions_amount_inr_check
-  CHECK (amount_inr >= 20 AND amount_inr % 20 = 0);
-
--- Backfill code for existing rows (they won't need it but keeps column NOT NULL feasible later)
--- For existing rows, generate codes from their id prefix
-UPDATE public.parking_sessions SET code = upper(substr(replace(id::text, '-', ''), 1, 6))
-  WHERE code IS NULL;
-
--- Index on code for driver page lookups
-CREATE INDEX parking_sessions_code_idx ON public.parking_sessions (code);
--- Index for device-due queries
-CREATE INDEX parking_sessions_active_ends_idx ON public.parking_sessions (ends_at)
-  WHERE status = 'active' AND exit_signalled = false;
--- Index for reminder queries
-CREATE INDEX parking_sessions_reminder_idx ON public.parking_sessions (ends_at)
-  WHERE status = 'active' AND reminder_sent = false;
-
--- 4. Drop the old consume function and replace with new helpers
-DROP FUNCTION IF EXISTS public.consume_parking_session(uuid);
-
--- Signal exit: atomically set exit_signalled and status=completed for one due session
-CREATE FUNCTION public.signal_exit_and_complete()
-RETURNS TABLE(session_id uuid, slot int) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+-- Enable Supabase Realtime
+DO $$
 BEGIN
-  RETURN QUERY
-  UPDATE public.parking_sessions
-     SET exit_signalled = true, status = 'completed'
-   WHERE id = (
-     SELECT ps.id FROM public.parking_sessions ps
-      WHERE ps.status = 'active' AND ps.exit_signalled = false AND ps.ends_at <= now()
-      ORDER BY ps.ends_at LIMIT 1
-      FOR UPDATE SKIP LOCKED
-   )
-  RETURNING public.parking_sessions.id AS session_id, public.parking_sessions.slot;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.signal_exit_and_complete() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.signal_exit_and_complete() TO service_role;
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.slots;
+  EXCEPTION WHEN duplicate_object THEN END;
 
--- Expire old awaiting_payment sessions (>10 min)
-CREATE FUNCTION public.expire_stale_sessions() RETURNS int LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
-DECLARE cnt int;
-BEGIN
-  UPDATE public.parking_sessions
-     SET status = 'expired'
-   WHERE status = 'awaiting_payment' AND created_at + interval '10 minutes' <= now();
-  GET DIAGNOSTICS cnt = ROW_COUNT;
-  RETURN cnt;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.expire_stale_sessions() FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.expire_stale_sessions() TO service_role;
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.sessions;
+  EXCEPTION WHEN duplicate_object THEN END;
+
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.devices;
+  EXCEPTION WHEN duplicate_object THEN END;
+
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.activity_logs;
+  EXCEPTION WHEN duplicate_object THEN END;
+
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.device_telemetry;
+  EXCEPTION WHEN duplicate_object THEN END;
+END $$;

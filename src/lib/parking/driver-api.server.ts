@@ -1,178 +1,301 @@
 import { z } from "zod";
-import { RATE_PER_30MIN, MAX_DURATION_MIN, durationOptions } from "./payments";
+import { markPaidServer } from "./payment-api.server";
+import { sameSecret } from "./payment-security.server";
+import { createHmac } from "crypto";
 
 const json = (body: unknown, status = 200) =>
-  Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
-
-const razorpayFetch = (path: string, body: unknown) => {
-  const keyId = process.env["RAZORPAY_KEY_ID"];
-  const keySecret = process.env["RAZORPAY_KEY_SECRET"];
-  if (!keyId || !keySecret) throw new Error("Razorpay not configured");
-  return fetch(`https://api.razorpay.com/v1${path}`, {
-    method: "POST",
+  Response.json(body, {
+    status,
     headers: {
-      Authorization: `Basic ${btoa(`${keyId}:${keySecret}`)}`,
       "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "content-type, authorization",
     },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(15000),
   });
-};
 
-// ─── POST /api/public/create-order ───
-// Called by the driver page to create a Razorpay order
-const createOrderSchema = z.object({
-  code: z.string().length(6),
-  duration_min: z
-    .number()
-    .int()
-    .min(30)
-    .max(MAX_DURATION_MIN)
-    .refine((v) => v % 30 === 0, "Must be in 30-minute steps"),
-  driver_email: z.string().email().max(255).optional().or(z.literal("")),
-  driver_phone: z
-    .string()
-    .regex(/^[6-9]\d{9}$/)
-    .optional()
-    .or(z.literal("")),
-});
-
-export async function createOrder(request: Request) {
-  const parsed = createOrderSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return json({ error: "Invalid request", details: parsed.error.flatten() }, 400);
-
-  const { code, duration_min, driver_email, driver_phone } = parsed.data;
-  const amount_inr = (duration_min / 30) * RATE_PER_30MIN;
-
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-  // Find the session by code
-  const { data: session, error } = await supabaseAdmin
-    .from("parking_sessions")
-    .select("*")
-    .eq("code", code)
-    .single();
-
-  if (error || !session) return json({ error: "Session not found" }, 404);
-  if (session.status !== "awaiting_payment")
-    return json({ error: "Session is no longer awaiting payment" }, 400);
-
-  // Check if expired (>10 min)
-  if (Date.now() >= Date.parse(session.created_at) + 10 * 60 * 1000) {
-    await supabaseAdmin
-      .from("parking_sessions")
-      .update({ status: "expired" })
-      .eq("id", session.id)
-      .eq("status", "awaiting_payment");
-    return json({ error: "Session has expired" }, 410);
-  }
-
-  // Update session with driver info and chosen duration
-  await supabaseAdmin
-    .from("parking_sessions")
-    .update({
-      amount_inr,
-      duration_min,
-      driver_email: driver_email || null,
-      driver_phone: driver_phone || null,
-    })
-    .eq("id", session.id);
-
-  // Create Razorpay order
-  try {
-    const response = await razorpayFetch("/orders", {
-      amount: amount_inr * 100,
-      currency: "INR",
-      receipt: session.id,
-      notes: { session_id: session.id, slot: session.slot, code },
-    });
-
-    if (!response.ok) {
-      console.error("Razorpay create-order failed", response.status);
-      return json({ error: "Payment gateway error" }, 502);
-    }
-
-    const order = z
-      .object({ id: z.string().startsWith("order_"), amount: z.number(), currency: z.string() })
-      .parse(await response.json());
-
-    await supabaseAdmin
-      .from("parking_sessions")
-      .update({ razorpay_order_id: order.id })
-      .eq("id", session.id);
-
-    return json({
-      order_id: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      key_id: process.env["RAZORPAY_KEY_ID"],
-      session_id: session.id,
-      slot: session.slot,
-      description: `Parking slot ${session.slot} — ${duration_min} min`,
-    });
-  } catch (err) {
-    console.error("Order creation interrupted", err);
-    return json({ error: "Payment creation interrupted" }, 502);
-  }
+function computeAmountPaise(durationMin: number, pricePerHour: number): number {
+  return Math.ceil((durationMin / 60) * pricePerHour * 100);
 }
 
-// ─── POST /api/public/extend-session ───
-// Called by the driver page to extend an active session
-const extendSchema = z.object({
-  session_id: z.string().uuid(),
-  extra_minutes: z.enum(["30", "60"]).transform(Number),
-});
+// ─── GET /api/public/session-public?code=AB12CD ───
+export async function sessionPublic(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code")?.trim().toUpperCase();
 
-export async function extendSession(request: Request) {
-  const parsed = extendSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return json({ error: "Invalid request" }, 400);
-
-  const { session_id, extra_minutes } = parsed.data;
-  const extra_amount = (extra_minutes / 30) * RATE_PER_30MIN;
+  if (!code) return json({ error: "Missing code parameter" }, 400);
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  const { data: session } = await supabaseAdmin
-    .from("parking_sessions")
-    .select("*")
-    .eq("id", session_id)
-    .single();
+  const { data: session, error } = await supabaseAdmin
+    .from("sessions")
+    .select("id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no")
+    .eq("code", code)
+    .maybeSingle();
 
-  if (!session) return json({ error: "Session not found" }, 404);
-  if (session.status !== "active") return json({ error: "Session is not active" }, 400);
+  if (error || !session) return json({ error: "Session not found" }, 404);
 
-  // Check total duration won't exceed max
-  const newDuration = (session.duration_min ?? 30) + extra_minutes;
-  if (newDuration > MAX_DURATION_MIN)
-    return json({ error: `Cannot exceed ${MAX_DURATION_MIN} minutes total` }, 400);
+  const { data: settings } = await supabaseAdmin
+    .from("settings")
+    .select("price_per_hour, duration_options")
+    .eq("id", 1)
+    .maybeSingle();
+
+  const pricePerHour = Number(settings?.price_per_hour || 20);
+  const durationOptions: number[] = Array.isArray(settings?.duration_options)
+    ? (settings?.duration_options as number[])
+    : [30, 60, 120, 180, 240];
+
+  const priceOptions = durationOptions.map((d) => ({
+    duration_min: d,
+    amount_inr: Math.ceil((d / 60) * pricePerHour),
+  }));
+
+  const now = Date.now();
+  let status = session.status;
+
+  const expiresAtMs = new Date(session.expires_at).getTime();
+  const expiresInSeconds = Math.max(0, Math.floor((expiresAtMs - now) / 1000));
+
+  if (status === "pending" && expiresInSeconds === 0) {
+    status = "expired";
+    await supabaseAdmin.from("sessions").update({ status: "expired" }).eq("id", session.id);
+  }
+
+  let secondsRemaining = 0;
+  if (session.end_time) {
+    const endMs = new Date(session.end_time).getTime();
+    secondsRemaining = Math.max(0, Math.floor((endMs - now) / 1000));
+  }
+
+  const amountInr = (session.amount_paise || 0) / 100;
+
+  return json({
+    code: session.code,
+    slot: session.slot,
+    status,
+    duration_min: session.duration_min || 0,
+    seconds_remaining: secondsRemaining,
+    amount: amountInr,
+    expires_in: expiresInSeconds,
+    vehicle_no: session.vehicle_no || null,
+    price_options: priceOptions,
+    price_per_hour: pricePerHour,
+  });
+}
+
+// ─── POST /api/public/create-order ───
+export async function createOrder(request: Request): Promise<Response> {
+  let body: {
+    code?: string;
+    duration_min?: number;
+    kind?: "new" | "extend";
+    vehicle_no?: string;
+    contact_email?: string;
+    contact_phone?: string;
+  };
 
   try {
-    const response = await razorpayFetch("/orders", {
-      amount: extra_amount * 100,
-      currency: "INR",
-      receipt: `${session_id}_ext_${extra_minutes}`,
-      notes: { session_id, extend: true, extra_minutes },
-    });
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
 
-    if (!response.ok) {
-      console.error("Razorpay extend-order failed", response.status);
-      return json({ error: "Payment gateway error" }, 502);
+  const code = body.code?.trim().toUpperCase();
+  const durationMin = Number(body.duration_min);
+  const kind = body.kind || "new";
+
+  if (!code || !durationMin) {
+    return json({ error: "Missing required fields: code and duration_min" }, 400);
+  }
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: settings } = await supabaseAdmin
+    .from("settings")
+    .select("price_per_hour, duration_options")
+    .eq("id", 1)
+    .maybeSingle();
+
+  const pricePerHour = Number(settings?.price_per_hour || 20);
+  const durationOptions: number[] = Array.isArray(settings?.duration_options)
+    ? (settings?.duration_options as number[])
+    : [30, 60, 120, 180, 240];
+
+  if (!durationOptions.includes(durationMin)) {
+    return json({ error: `Duration must be one of: ${durationOptions.join(", ")}` }, 400);
+  }
+
+  const { data: session, error: sessErr } = await supabaseAdmin
+    .from("sessions")
+    .select("*")
+    .eq("code", code)
+    .maybeSingle();
+
+  if (sessErr || !session) return json({ error: "Session not found" }, 404);
+
+  const now = Date.now();
+
+  if (kind === "new") {
+    if (session.status !== "pending") {
+      return json({ error: `Session is not pending (status: ${session.status})` }, 400);
+    }
+    const expiresAt = new Date(session.expires_at).getTime();
+    if (now > expiresAt) {
+      await supabaseAdmin.from("sessions").update({ status: "expired" }).eq("id", session.id);
+      return json({ error: "Session has expired" }, 400);
     }
 
-    const order = z
-      .object({ id: z.string().startsWith("order_"), amount: z.number(), currency: z.string() })
-      .parse(await response.json());
-
-    return json({
-      order_id: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      key_id: process.env["RAZORPAY_KEY_ID"],
-      session_id,
-      description: `Extend parking +${extra_minutes} min`,
-    });
-  } catch (err) {
-    console.error("Extend order creation interrupted", err);
-    return json({ error: "Payment creation interrupted" }, 502);
+    const sessionUpdates: Record<string, unknown> = {};
+    if (body.vehicle_no) sessionUpdates.vehicle_no = body.vehicle_no.trim();
+    if (body.contact_email) sessionUpdates.contact_email = body.contact_email.trim();
+    if (body.contact_phone) sessionUpdates.contact_phone = body.contact_phone.trim();
+    if (Object.keys(sessionUpdates).length > 0) {
+      await supabaseAdmin.from("sessions").update(sessionUpdates).eq("id", session.id);
+    }
+  } else if (kind === "extend") {
+    if (session.status !== "active") {
+      return json({ error: "Only active sessions can be extended" }, 400);
+    }
+    if (session.exit_signalled_at) {
+      return json({ error: "Session has already ended/signalled exit" }, 400);
+    }
   }
+
+  const amountPaise = computeAmountPaise(durationMin, pricePerHour);
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+  if (!keyId || !keySecret) {
+    return json({ error: "Razorpay credentials not configured" }, 500);
+  }
+
+  const authHeader = "Basic " + Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+  const rzpRes = await fetch("https://api.razorpay.com/v1/orders", {
+    method: "POST",
+    headers: {
+      Authorization: authHeader,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      amount: amountPaise,
+      currency: "INR",
+      receipt: code,
+      notes: {
+        session_id: session.id,
+        code,
+        kind,
+        duration_min: String(durationMin),
+      },
+    }),
+  });
+
+  const orderData = await rzpRes.json();
+  if (!rzpRes.ok || !orderData.id) {
+    console.error("Razorpay order creation failed:", orderData);
+    return json({ error: orderData.error?.description || "Failed to create Razorpay order" }, 502);
+  }
+
+  await supabaseAdmin.from("payments").insert({
+    session_id: session.id,
+    razorpay_order_id: orderData.id,
+    amount_paise: amountPaise,
+    kind,
+    duration_min: durationMin,
+    status: "created",
+  });
+
+  return json(
+    {
+      order_id: orderData.id,
+      amount: amountPaise,
+      currency: "INR",
+      key_id: keyId,
+    },
+    201
+  );
+}
+
+// ─── POST /api/public/verify-payment ───
+export async function verifyPayment(request: Request): Promise<Response> {
+  let body: {
+    razorpay_order_id?: string;
+    razorpay_payment_id?: string;
+    razorpay_signature?: string;
+  };
+
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const orderId = body.razorpay_order_id?.trim();
+  const paymentId = body.razorpay_payment_id?.trim();
+  const signature = body.razorpay_signature?.trim();
+
+  if (!orderId || !paymentId || !signature) {
+    return json({ error: "Missing required payment fields" }, 400);
+  }
+
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keySecret) return json({ error: "Razorpay secret not configured" }, 500);
+
+  const expectedSignature = createHmac("sha256", keySecret)
+    .update(`${orderId}|${paymentId}`)
+    .digest("hex");
+
+  if (!sameSecret(signature, expectedSignature)) {
+    return json({ error: "Invalid signature" }, 400);
+  }
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: payment } = await supabaseAdmin
+    .from("payments")
+    .select("amount_paise")
+    .eq("razorpay_order_id", orderId)
+    .maybeSingle();
+
+  const amountPaise = payment?.amount_paise || 0;
+  const result = await markPaidServer(orderId, paymentId, amountPaise);
+
+  return json({ ok: true, result });
+}
+
+// ─── POST /api/public/leave-now ───
+export async function leaveNow(request: Request): Promise<Response> {
+  let body: { code?: string };
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const code = body.code?.trim().toUpperCase();
+  if (!code) return json({ error: "Missing code" }, 400);
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const nowIso = new Date().toISOString();
+
+  const { data: updated } = await supabaseAdmin
+    .from("sessions")
+    .update({ end_time: nowIso })
+    .eq("code", code)
+    .eq("status", "active")
+    .select("id, slot")
+    .maybeSingle();
+
+  if (!updated) {
+    return json({ error: "Active session not found" }, 404);
+  }
+
+  await supabaseAdmin.from("activity_logs").insert({
+    type: "leave_now",
+    slot: updated.slot,
+    session_id: updated.id,
+    message: `Driver requested early exit for slot ${updated.slot}`,
+  });
+
+  return json({ ok: true });
 }

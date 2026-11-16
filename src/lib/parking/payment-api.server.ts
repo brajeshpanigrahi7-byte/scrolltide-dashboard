@@ -1,248 +1,306 @@
-import { z } from "zod";
 import { sameSecret, validWebhook } from "./payment-security.server";
-import { generateCode, payUrl, sessionIdSchema, RATE_PER_30MIN } from "./payments";
+import { createSessionSchema, sessionIdSchema } from "./payments";
 
 const json = (body: unknown, status = 200) =>
-  Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
+  Response.json(body, {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "content-type, authorization, x-razorpay-signature, x-device-key",
+    },
+  });
+
+function requireDevice(request: Request) {
+  if (!sameSecret(request.headers.get("x-device-key"), process.env["DEVICE_API_KEY"])) {
+    return json({ error: "Device authentication required" }, 401);
+  }
+  return null;
+}
+
+const razorpayFetch = (path: string, body: unknown) => {
+  const keyId = process.env["RAZORPAY_KEY_ID"];
+  const keySecret = process.env["RAZORPAY_KEY_SECRET"];
+  if (!keyId || !keySecret) throw new Error("Razorpay not configured");
+  return fetch(`https://api.razorpay.com/v1${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${btoa(`${keyId}:${keySecret}`)}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+};
+
+// ─── Legacy/Compatibility: createSession ───
+export async function createSession(request: Request) {
+  const denied = requireDevice(request);
+  if (denied) return denied;
+
+  const parsed = createSessionSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return json({ error: "Invalid payment request" }, 400);
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { slot, amount_inr } = parsed.data;
+
+  const { data: session, error } = await supabaseAdmin
+    .from("parking_sessions")
+    .insert({ slot, amount_inr })
+    .select()
+    .single();
+
+  if (error || !session) return json({ error: "Database rejected session" }, 500);
+
+  try {
+    const expire_by = Math.floor(Date.parse(session.created_at) / 1000) + 900;
+    const response = await razorpayFetch("/payment_links", {
+      amount: amount_inr * 100,
+      currency: "INR",
+      accept_partial: false,
+      reference_id: session.id,
+      description: `Parking slot ${slot}`,
+      expire_by,
+      notes: { session_id: session.id, slot },
+    });
+
+    if (!response.ok) {
+      await supabaseAdmin.from("parking_sessions").update({ status: "expired" }).eq("id", session.id);
+      return json({ error: "Razorpay could not create the payment link" }, 502);
+    }
+
+    const { id: payment_link_id, short_url } = await response.json();
+    await supabaseAdmin.from("parking_sessions").update({ payment_link_id, short_url }).eq("id", session.id);
+    return json({ session_id: session.id, short_url });
+  } catch {
+    await supabaseAdmin.from("parking_sessions").update({ status: "expired" }).eq("id", session.id);
+    return json({ error: "Razorpay could not create the payment link" }, 502);
+  }
+}
+
+// ─── Legacy/Compatibility: sessionStatus ───
+export async function sessionStatus(request: Request) {
+  const denied = requireDevice(request);
+  if (denied) return denied;
+
+  const url = new URL(request.url);
+  const parsed = sessionIdSchema.safeParse(url.searchParams.get("id"));
+  if (!parsed.success) return json({ error: "Invalid session id" }, 400);
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin.rpc("consume_parking_session", { p_id: parsed.data });
+
+  if (error || !data) return json({ error: "Session missing or expired" }, 404);
+  return json({ status: data });
+}
+
+// ─── Shared Idempotent markPaidServer ───
+export async function markPaidServer(
+  orderId: string,
+  paymentId: string,
+  amountPaise: number
+): Promise<{ status: string; message?: string }> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+  const { data: payment, error: pErr } = await supabaseAdmin
+    .from("payments")
+    .select("*, sessions(*)")
+    .eq("razorpay_order_id", orderId)
+    .maybeSingle();
+
+  if (pErr || !payment) {
+    return { status: "error", message: `Payment record not found for order ${orderId}` };
+  }
+
+  if (payment.status === "captured" && payment.razorpay_payment_id === paymentId) {
+    return { status: "already_captured" };
+  }
+
+  const session = payment.sessions;
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  if (!session) {
+    await supabaseAdmin
+      .from("payments")
+      .update({ status: "needs_refund", razorpay_payment_id: paymentId })
+      .eq("id", payment.id);
+
+    await supabaseAdmin.from("activity_logs").insert({
+      type: "needs_refund",
+      message: `Payment ₹${amountPaise / 100} (${paymentId}) received with no valid session. Needs refund.`,
+    });
+    return { status: "needs_refund" };
+  }
+
+  const isExpired = session.expires_at ? new Date(session.expires_at).getTime() < now.getTime() : false;
+
+  if (payment.kind === "new" && session.status === "pending" && !isExpired) {
+    const { data: updatedSession } = await supabaseAdmin
+      .from("sessions")
+      .update({
+        status: "paid",
+        duration_min: payment.duration_min,
+        amount_paise: payment.amount_paise,
+        paid_at: nowIso,
+      })
+      .eq("id", session.id)
+      .eq("status", "pending")
+      .select("id, slot, code")
+      .maybeSingle();
+
+    if (updatedSession) {
+      await supabaseAdmin
+        .from("payments")
+        .update({ status: "captured", razorpay_payment_id: paymentId })
+        .eq("id", payment.id);
+
+      await supabaseAdmin.from("activity_logs").insert({
+        device_id: session.device_id,
+        type: "payment_received",
+        slot: session.slot,
+        session_id: session.id,
+        message: `Payment ₹${amountPaise / 100} received for slot ${session.slot} (code: ${session.code})`,
+      });
+
+      return { status: "captured" };
+    }
+  }
+
+  if (payment.kind === "extend" && session.status === "active" && !session.exit_signalled_at) {
+    const currentEnd = session.end_time ? new Date(session.end_time).getTime() : now.getTime();
+    const newEndIso = new Date(currentEnd + payment.duration_min * 60 * 1000).toISOString();
+    const newDuration = (session.duration_min || 0) + payment.duration_min;
+    const newAmount = (session.amount_paise || 0) + payment.amount_paise;
+
+    const { data: updatedSession } = await supabaseAdmin
+      .from("sessions")
+      .update({
+        end_time: newEndIso,
+        duration_min: newDuration,
+        amount_paise: newAmount,
+        reminder_sent: false,
+      })
+      .eq("id", session.id)
+      .eq("status", "active")
+      .is("exit_signalled_at", null)
+      .select("id, slot, code")
+      .maybeSingle();
+
+    if (updatedSession) {
+      await supabaseAdmin
+        .from("payments")
+        .update({ status: "captured", razorpay_payment_id: paymentId })
+        .eq("id", payment.id);
+
+      await supabaseAdmin.from("activity_logs").insert({
+        device_id: session.device_id,
+        type: "extend",
+        slot: session.slot,
+        session_id: session.id,
+        message: `Extended by ${payment.duration_min} min (code: ${session.code})`,
+      });
+
+      return { status: "captured" };
+    }
+  }
+
+  await supabaseAdmin
+    .from("payments")
+    .update({ status: "needs_refund", razorpay_payment_id: paymentId })
+    .eq("id", payment.id);
+
+  await supabaseAdmin.from("activity_logs").insert({
+    device_id: session.device_id,
+    type: "needs_refund",
+    slot: session.slot,
+    session_id: session.id,
+    message: `Payment ₹${amountPaise / 100} (${paymentId}) received for ${session.status} session ${session.code}. Needs refund.`,
+  });
+
+  return { status: "needs_refund" };
+}
 
 // ─── POST /api/public/razorpay-webhook ───
-// Only the Razorpay webhook (payment.captured, order.paid, payment_link.paid) may set a session to paid,
-// after verifying X-Razorpay-Signature.
-export async function razorpayWebhook(request: Request) {
-  const raw = await request.text();
-  const webhookSecret = process.env["RAZORPAY_WEBHOOK_SECRET"];
-  if (!webhookSecret) return json({ error: "Webhook is not configured" }, 503);
+export async function razorpayWebhook(request: Request): Promise<Response> {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) return json({ error: "RAZORPAY_WEBHOOK_SECRET not configured" }, 500);
 
-  const signature = request.headers.get("x-razorpay-signature");
-  if (!validWebhook(raw, signature, webhookSecret)) {
-    console.error("Razorpay webhook signature verification failed");
+  const rawBody = await request.text();
+  const signature =
+    request.headers.get("x-razorpay-signature") || request.headers.get("X-Razorpay-Signature");
+
+  if (!signature || !validWebhook(rawBody, signature, secret)) {
     return json({ error: "Invalid signature" }, 401);
   }
 
-  let body: any;
+  let event: Record<string, any>;
   try {
-    body = JSON.parse(raw);
+    event = JSON.parse(rawBody);
   } catch {
-    return json({ error: "Invalid payment event" }, 400);
+    return json({ error: "Invalid JSON" }, 400);
   }
 
-  const eventName = body?.event;
-  if (
-    eventName !== "payment.captured" &&
-    eventName !== "order.paid" &&
-    eventName !== "payment_link.paid"
-  ) {
-    return json({ received: true });
-  }
-
-  const paymentLink = body?.payload?.payment_link?.entity;
-  const order = body?.payload?.order?.entity;
-  const payment = body?.payload?.payment?.entity;
+  const eventType = event.event;
+  const payload = event.payload || {};
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  // Determine session ID
-  let sessionId: string | undefined =
-    paymentLink?.reference_id ||
-    order?.receipt ||
-    order?.notes?.session_id ||
-    payment?.notes?.session_id;
+  // Handle payment_link.paid (legacy support)
+  if (eventType === "payment_link.paid") {
+    const plink = payload.payment_link?.entity;
+    if (!plink || plink.status !== "paid") return json({ error: "Ignored" }, 400);
 
-  // If receipt has _ext_, extract base session ID
-  const isExtend =
-    order?.notes?.extend === true ||
-    payment?.notes?.extend === true ||
-    (typeof order?.receipt === "string" && order.receipt.includes("_ext_"));
-
-  if (isExtend && typeof order?.receipt === "string" && order.receipt.includes("_ext_")) {
-    sessionId = order.receipt.split("_ext_")[0];
-  }
-
-  // Fallback: look up by payment_link_id or razorpay_order_id
-  let session: any = null;
-  if (sessionId) {
-    const { data } = await supabaseAdmin
+    const { data: session } = await supabaseAdmin
       .from("parking_sessions")
       .select("*")
-      .eq("id", sessionId)
-      .maybeSingle();
-    session = data;
-  }
+      .eq("payment_link_id", plink.id)
+      .single();
 
-  if (!session && paymentLink?.id) {
-    const { data } = await supabaseAdmin
-      .from("parking_sessions")
-      .select("*")
-      .eq("payment_link_id", paymentLink.id)
-      .maybeSingle();
-    session = data;
-  }
-
-  if (!session && (order?.id || payment?.order_id)) {
-    const orderIdToMatch = order?.id || payment?.order_id;
-    const { data } = await supabaseAdmin
-      .from("parking_sessions")
-      .select("*")
-      .eq("razorpay_order_id", orderIdToMatch)
-      .maybeSingle();
-    session = data;
-  }
-
-  if (!session) {
-    console.error("Razorpay webhook: Unknown session", {
-      sessionId,
-      paymentLinkId: paymentLink?.id,
-      orderId: order?.id,
-    });
-    return json({ error: "Unknown session" }, 404);
-  }
-
-  // Handle extension
-  if (isExtend) {
-    const extraMinutes = Number(
-      order?.notes?.extra_minutes ??
-        payment?.notes?.extra_minutes ??
-        (order?.receipt ? order.receipt.split("_ext_")[1] : 30) ||
-        30,
-    );
-
-    const newDuration = (session.duration_min ?? 30) + extraMinutes;
-    const currentEndsAt = session.ends_at ? new Date(session.ends_at) : new Date();
-    const newEndsAt = new Date(currentEndsAt.getTime() + extraMinutes * 60 * 1000);
-
-    await supabaseAdmin
-      .from("parking_sessions")
-      .update({
-        duration_min: newDuration,
-        amount_inr: session.amount_inr + (extraMinutes / 30) * 20,
-        ends_at: newEndsAt.toISOString(),
-        reminder_sent: false,
-        razorpay_payment_id: payment?.id || session.razorpay_payment_id,
-      })
-      .eq("id", session.id);
-
-    try {
-      await supabaseAdmin.from("activity_logs").insert({
-        device: "webhook",
-        event: "payment_received",
-        session_id: session.id,
-        slot: session.slot,
-        meta: {
-          type: "extend",
-          extra_minutes: extraMinutes,
-          event: eventName,
-          payment_id: payment?.id,
-        },
-      });
-    } catch (e) {
-      console.error("Failed to write to activity_logs", e);
+    if (!session) return json({ error: "Session missing" }, 404);
+    if (plink.amount_paid !== session.amount_inr * 100) {
+      return json({ error: "Amount mismatch" }, 400);
     }
 
-    return json({ received: true, extended: true });
-  }
-
-  // Idempotent check: if already paid, active, or completed, don't overwrite
-  if (session.status === "paid" || session.status === "active" || session.status === "completed") {
-    return json({ received: true, already_processed: true });
-  }
-
-  // Set session to paid (only allowable from webhook after signature check)
-  const result = await supabaseAdmin
-    .from("parking_sessions")
-    .update({
-      status: "paid",
-      paid_at: new Date().toISOString(),
-      razorpay_order_id: order?.id || payment?.order_id || session.razorpay_order_id,
-      razorpay_payment_id: payment?.id || session.razorpay_payment_id,
-    })
-    .eq("id", session.id)
-    .in("status", ["awaiting_payment", "pending", "expired"]);
-
-  if (result.error) {
-    console.error("Failed to update parking session status to paid", result.error);
-    return json({ error: "Payment confirmation could not be saved" }, 500);
-  }
-
-  try {
-    await supabaseAdmin.from("activity_logs").insert({
-      device: "webhook",
-      event: "payment_received",
-      session_id: session.id,
-      slot: session.slot,
-      meta: {
-        event: eventName,
-        payment_id: payment?.id,
-        order_id: order?.id || payment?.order_id,
-        payment_link_id: paymentLink?.id,
-      },
-    });
-  } catch (e) {
-    console.error("Failed to write to activity_logs", e);
-  }
-
-  return json({ received: true });
-}
-
-// ─── GET /api/public/session-status ───
-export async function sessionStatus(request: Request) {
-  const url = new URL(request.url);
-  const idParam = url.searchParams.get("id");
-  const codeParam = url.searchParams.get("code");
-
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-
-  let session: any = null;
-
-  if (idParam) {
-    const parsed = sessionIdSchema.safeParse(idParam);
-    if (!parsed.success) return json({ error: "Invalid session ID" }, 400);
-    const { data } = await supabaseAdmin
-      .from("parking_sessions")
-      .select("id, status, slot, duration_min, amount_inr, created_at, entered_at, ends_at, code, short_url")
-      .eq("id", parsed.data)
-      .maybeSingle();
-    session = data;
-  } else if (codeParam) {
-    const parsed = z.string().length(6).safeParse(codeParam);
-    if (!parsed.success) return json({ error: "Invalid code" }, 400);
-    const { data } = await supabaseAdmin
-      .from("parking_sessions")
-      .select("id, status, slot, duration_min, amount_inr, created_at, entered_at, ends_at, code, short_url")
-      .eq("code", parsed.data)
-      .maybeSingle();
-    session = data;
-  } else {
-    return json({ error: "Provide id or code parameter" }, 400);
-  }
-
-  if (!session) return json({ error: "Unknown session" }, 404);
-
-  // Awaiting_payment older than 10 minutes becomes expired
-  if (
-    (session.status === "awaiting_payment" || session.status === "pending") &&
-    Date.now() >= Date.parse(session.created_at) + 10 * 60 * 1000
-  ) {
+    // Only update if currently pending
     await supabaseAdmin
       .from("parking_sessions")
-      .update({ status: "expired" })
+      .update({ status: "paid", paid_at: new Date().toISOString() })
       .eq("id", session.id)
-      .in("status", ["awaiting_payment", "pending"]);
-    session.status = "expired";
+      .in("status", ["pending"]);
+
+    return json({ ok: true });
   }
 
-  return json({
-    id: session.id,
-    status: session.status,
-    slot: session.slot,
-    duration_min: session.duration_min ?? 30,
-    amount_inr: session.amount_inr,
-    entered_at: session.entered_at,
-    ends_at: session.ends_at,
-    code: session.code,
-    short_url: session.short_url,
-  });
-}
+  if (eventType === "payment.captured" || eventType === "order.paid") {
+    const paymentEntity = payload.payment?.entity;
+    const orderEntity = payload.order?.entity;
+    const orderId = paymentEntity?.order_id || orderEntity?.id;
+    const paymentId = paymentEntity?.id;
+    const amount = paymentEntity?.amount || orderEntity?.amount;
 
-// ─── POST /api/public/create-session ───
-// Also accessible for testing or device creation
-export { deviceSession as createSession } from "./device-api.server";
+    if (orderId && paymentId && amount) {
+      await markPaidServer(orderId, paymentId, Number(amount));
+    }
+  } else if (eventType === "payment.failed") {
+    const paymentEntity = payload.payment?.entity;
+    const orderId = paymentEntity?.order_id;
+    const paymentId = paymentEntity?.id;
+    const errorDescription = paymentEntity?.error_description || "Payment failed";
+
+    if (orderId) {
+      await supabaseAdmin
+        .from("payments")
+        .update({ status: "failed", razorpay_payment_id: paymentId })
+        .eq("razorpay_order_id", orderId);
+
+      await supabaseAdmin.from("activity_logs").insert({
+        type: "payment_failed",
+        message: `Payment failed for order ${orderId}: ${errorDescription}`,
+      });
+    }
+  }
+
+  return json({ status: "ok" }, 200);
+}

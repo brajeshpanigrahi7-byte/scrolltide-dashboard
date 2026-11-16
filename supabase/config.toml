@@ -1,1 +1,25 @@
 project_id = "ygnqotiqppdvbvpfaxwa"
+
+[functions.device-session]
+verify_jwt = false
+
+[functions.device-poll]
+verify_jwt = false
+
+[functions.device-event]
+verify_jwt = false
+
+[functions.device-due]
+verify_jwt = false
+
+[functions.session-public]
+verify_jwt = false
+
+[functions.create-order]
+verify_jwt = false
+
+[functions.verify-payment]
+verify_jwt = false
+
+[functions.razorpay-webhook]
+verify_jwt = false

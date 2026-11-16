@@ -94,13 +94,31 @@ function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
       <button className="lg:hidden" onClick={onMenu} aria-label="Open menu"><Menu className="size-5" /></button>
       <h1 className="truncate text-lg font-semibold">{title}</h1>
       <div className="ml-auto flex items-center gap-2 md:gap-4">
-        {mode === "demo"
-          ? <span title="No Firebase database configured — showing a simulation of the firmware"><Pill t="warning" pulse>Demo mode</Pill></span>
-          : <span title={liveError ?? "Reading hardware state"}><Pill t={state.online && !liveError ? "primary" : "warning"} pulse={state.online && !liveError}>{state.online && !liveError ? "Live hardware" : "Device offline"}</Pill></span>}
+        {mode === "demo" ? (
+          <span title="Demo simulation mode">
+            <Pill t="warning" pulse>
+              Demo mode
+            </Pill>
+          </span>
+        ) : (
+          <span title={state.online ? "Hardware connected" : "Heartbeat timeout"}>
+            <Pill t={state.online ? "free" : "error"} pulse={state.online}>
+              {state.online ? "DEVICE ONLINE" : "DEVICE OFFLINE"}
+            </Pill>
+          </span>
+        )}
         <span className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex" title="ESP32 heartbeat">
           <Dot t={state.online ? "free" : "error"} pulse={state.online} /> ESP32 {state.online ? "online" : "offline"}
         </span>
-        <span className="hidden font-mono text-xs text-muted-foreground md:block">{clock ? clock.toLocaleString([], { dateStyle: "medium", timeStyle: "medium" }) : ""}</span>
+        <span className="hidden font-mono text-xs text-muted-foreground md:block" title="Asia/Kolkata (IST)">
+          {clock
+            ? `${clock.toLocaleString("en-IN", {
+                timeZone: "Asia/Kolkata",
+                dateStyle: "medium",
+                timeStyle: "medium",
+              })} IST`
+            : ""}
+        </span>
         <div className="relative">
           <button onClick={() => setOpen((o) => !o)} className="relative rounded-lg p-2 hover:bg-accent" aria-label="Notifications">
             <Bell className="size-4" />

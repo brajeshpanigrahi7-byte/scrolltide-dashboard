@@ -64,32 +64,125 @@ const statusLabel: Record<SlotStatus, string> = { FREE: "AVAILABLE", RESERVED: "
 const glow: Record<SlotStatus, string> = { FREE: "glow-free", RESERVED: "glow-reserved", OCCUPIED: "glow-occupied" };
 
 export function SlotCard({ slot, now, compact }: { slot: Slot; now: number; compact?: boolean }) {
-  const t = statusTone[slot.status];
+  const isExpiringSoon =
+    slot.status === "OCCUPIED" &&
+    slot.secondsRemaining != null &&
+    slot.secondsRemaining <= 600 &&
+    slot.secondsRemaining > 0;
+
+  const t: Tone = isExpiringSoon ? "warning" : statusTone[slot.status];
   const remain = slot.reservedUntil ? Math.max(0, Math.ceil((slot.reservedUntil - now) / 1000)) : 0;
   const [r, g] = GPIO.led[slot.id - 1] ?? [0, 0];
+
+  const formatCountdown = (totalSec: number) => {
+    const s = Math.max(0, totalSec);
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
+
   return (
-    <div className={cn("panel relative flex flex-col overflow-hidden border-2 border-dashed transition-colors duration-500", t === "free" ? "border-free/40" : t === "reserved" ? "border-reserved/50" : "border-occupied/50")}>
+    <div
+      className={cn(
+        "panel relative flex flex-col overflow-hidden border-2 border-dashed transition-colors duration-500",
+        t === "free"
+          ? "border-free/40"
+          : t === "reserved"
+          ? "border-reserved/50"
+          : isExpiringSoon
+          ? "border-warning/70"
+          : "border-occupied/50"
+      )}
+    >
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-        <span className="font-mono text-xs text-muted-foreground">SLOT</span>
-        <span className={cn("size-3 rounded-full bg-current transition-all duration-500", tone[t], glow[slot.status])} title={`RGB LED (R:GPIO${r} / G:GPIO${g})`} />
+        <span className="font-mono text-xs text-muted-foreground">SLOT {slot.id}</span>
+        <span
+          className={cn(
+            "size-3 rounded-full bg-current transition-all duration-500",
+            tone[t],
+            isExpiringSoon ? "glow-warning animate-pulse" : glow[slot.status]
+          )}
+          title={`RGB LED (R:GPIO${r} / G:GPIO${g})`}
+        />
       </div>
-      <div className={cn("flex flex-1 flex-col items-center justify-center gap-2", compact ? "py-4" : "py-7")}>
-        <span className="font-mono text-4xl font-bold">{slot.id}</span>
-        <Car className={cn("transition-all duration-500", tone[t], slot.status === "OCCUPIED" ? "size-10 opacity-100" : "size-8 opacity-25")} />
-        <span className={cn("font-mono text-xs font-semibold tracking-widest", tone[t])}>{statusLabel[slot.status]}</span>
+      <div className={cn("flex flex-1 flex-col items-center justify-center gap-1.5", compact ? "py-3" : "py-6")}>
+        <span className="font-mono text-3xl font-bold">{slot.id}</span>
+        <Car
+          className={cn(
+            "transition-all duration-500",
+            tone[t],
+            slot.status === "OCCUPIED" ? "size-9 opacity-100" : "size-7 opacity-25"
+          )}
+        />
+        <span className={cn("font-mono text-[11px] font-semibold tracking-wider", tone[t])}>
+          {isExpiringSoon ? "ENDING SOON" : statusLabel[slot.status]}
+        </span>
+
+        {/* Reserved details */}
         {slot.status === "RESERVED" && (
-          <div className="w-3/4">
-            <div className="h-1 overflow-hidden rounded-full bg-muted"><div className="h-full bg-reserved transition-all" style={{ width: `${(remain / 60) * 100}%` }} /></div>
-            <p className="mt-1 text-center font-mono text-xs text-reserved">{remain}s left</p>
+          <div className="w-4/5 text-center mt-1">
+            {slot.sessionCode && (
+              <span className="inline-block px-2 py-0.5 rounded bg-reserved/10 text-reserved font-mono text-[11px] font-bold">
+                {slot.sessionCode}
+              </span>
+            )}
+            <div className="h-1 overflow-hidden rounded-full bg-muted mt-1.5">
+              <div
+                className="h-full bg-reserved transition-all"
+                style={{ width: `${Math.min(100, (remain / 300) * 100)}%` }}
+              />
+            </div>
+            <p className="mt-1 font-mono text-[11px] text-reserved font-medium">{formatCountdown(remain)} left</p>
+          </div>
+        )}
+
+        {/* Occupied details */}
+        {slot.status === "OCCUPIED" && (
+          <div className="w-4/5 text-center mt-1 space-y-0.5">
+            {slot.sessionCode && (
+              <span className="inline-block px-2 py-0.5 rounded bg-muted font-mono text-[11px] font-semibold text-slate-200">
+                {slot.sessionCode}
+              </span>
+            )}
+            {slot.vehicleNo && (
+              <p className="font-mono text-[10px] text-muted-foreground uppercase">{slot.vehicleNo}</p>
+            )}
+            {slot.secondsRemaining != null && (
+              <p
+                className={cn(
+                  "font-mono text-xs font-bold pt-0.5",
+                  isExpiringSoon ? "text-warning animate-pulse" : "text-emerald-400"
+                )}
+              >
+                {formatCountdown(slot.secondsRemaining)}
+              </p>
+            )}
           </div>
         )}
       </div>
+
       {!compact && (
-        <dl className="grid grid-cols-2 gap-y-1 border-t border-border px-4 py-3 font-mono text-[11px]">
+        <dl className="grid grid-cols-2 gap-y-1 border-t border-border px-4 py-2.5 font-mono text-[11px]">
           <dt className="text-muted-foreground">IR (GPIO{GPIO.ir[slot.id - 1]})</dt>
-          <dd className="text-right">{!slot.sensorOk ? <span className="text-destructive">FAULT</span> : slot.irRaw ? "DETECT" : "CLEAR"}{slot.irPendingSince && slot.sensorOk ? " …" : ""}</dd>
+          <dd className="text-right">
+            {!slot.sensorOk ? (
+              <span className="text-destructive">FAULT</span>
+            ) : slot.irRaw ? (
+              "DETECT"
+            ) : (
+              "CLEAR"
+            )}
+          </dd>
           <dt className="text-muted-foreground">LED</dt>
-          <dd className={cn("text-right", tone[t])}>{slot.status === "FREE" ? "GREEN" : slot.status === "RESERVED" ? "YELLOW" : "RED"}</dd>
+          <dd className={cn("text-right font-medium", tone[t])}>
+            {slot.status === "FREE"
+              ? "GREEN"
+              : slot.status === "RESERVED"
+              ? "YELLOW"
+              : isExpiringSoon
+              ? "BLINKING"
+              : "RED"}
+          </dd>
           <dt className="text-muted-foreground">Updated</dt>
           <dd className="text-right">{fmtTime(slot.lastUpdate)}</dd>
         </dl>
