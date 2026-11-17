@@ -76,7 +76,7 @@ function SettingsPage() {
 
       <Panel title="Razorpay test payment">
         <p className="text-sm text-muted-foreground mb-4">
-          Creates a real ₹20 session (Slot 1, 30 min duration) and opens the Razorpay pay link in a new window.
+          Creates a real parking session for Slot 1 and opens its ParkSense pay page, where Razorpay Checkout collects the payment.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button
@@ -85,7 +85,7 @@ function SettingsPage() {
             className="flex items-center gap-2"
           >
             {testLoading ? <RefreshCw className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-            Test payment (₹20)
+            Test live payment
           </Button>
           {lastPayUrl && (
             <Button asChild variant="outline">
@@ -109,7 +109,7 @@ function SettingsPage() {
 
       <Panel title="Parking tariff">
         <div className="grid grid-cols-2 gap-2 text-sm">
-          {durationOptions.map((option) => (
+          {durationOptions().map((option) => (
             <div key={option.minutes} className="flex justify-between border-b border-border py-2">
               <span>{option.minutes} min</span>
               <span>₹{option.amount}</span>

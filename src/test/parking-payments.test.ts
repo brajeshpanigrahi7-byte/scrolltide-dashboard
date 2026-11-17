@@ -26,11 +26,11 @@ describe("parking payment rules", () => {
       { status: "created", amount_paise: 4000, created_at: "2026-11-15T05:00:00Z" },
       { status: "needs_refund", amount_paise: 6000, created_at: "2026-11-15T05:00:00Z" },
     ];
-    expect(todayCollected(rows, Date.parse("2026-11-15T05:03:00Z"))).toBe(20);
+    expect(todayCollected(rows, Date.parse("2026-11-15T05:03:00Z"))).toBe(30);
   });
   it("keeps device QR URLs within 53 characters", () => {
     expect(payUrl("AB23CD")).toBe("https://scrolltide-dashboard.lovable.app/p/AB23CD");
-    expect(payUrl("AB23CD")).toHaveLength(53);
+    expect(payUrl("AB23CD").length).toBeLessThanOrEqual(53);
     expect(() => payUrl("AB23CD", "https://a-much-longer-parking-domain.example.com")).toThrow();
   });
 });

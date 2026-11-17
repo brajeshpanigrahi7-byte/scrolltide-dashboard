@@ -17,7 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { durationOptions, RATE_PER_30MIN } from "@/lib/parking/payments";
+import { DEFAULT_SETTINGS, durationOptions, pricePaise } from "@/lib/parking/payments";
 
 declare global {
   interface Window {
@@ -42,15 +42,14 @@ export const Route = createFileRoute("/p/$code")({
 });
 
 interface SessionData {
-  id: string;
-  code: string;
   slot: number;
-  status: "awaiting_payment" | "paid" | "active" | "completed" | "expired" | "cancelled" | string;
+  status: "pending" | "paid" | "active" | "completed" | "expired" | "cancelled" | string;
   duration_min: number;
-  amount_inr: number;
-  entered_at: string | null;
-  ends_at: string | null;
-  short_url?: string | null;
+  amount: number;
+  seconds_remaining: number;
+  expires_in: number;
+  price_options: { duration_min: number; amount: number }[];
+  payment_id: string | null;
 }
 
 function DriverPaymentPage() {
@@ -64,6 +63,7 @@ function DriverPaymentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [extending, setExtending] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [receivedAt, setReceivedAt] = useState(Date.now());
 
   // Poll clock for countdown
   useEffect(() => {
@@ -81,6 +81,7 @@ function DriverPaymentPage() {
       }
       const data: SessionData = await res.json();
       setSession(data);
+      setReceivedAt(Date.now());
       if (data.duration_min) setSelectedDuration(data.duration_min);
       setError(null);
     } catch (err: any) {
@@ -110,8 +111,9 @@ function DriverPaymentPage() {
         body: JSON.stringify({
           code,
           duration_min: selectedDuration,
-          driver_email: email.trim() || undefined,
-          driver_phone: phone.trim() || undefined,
+          kind: "new",
+          contact_email: email.trim() || undefined,
+          contact_phone: phone.trim() || undefined,
         }),
       });
 
@@ -124,16 +126,24 @@ function DriverPaymentPage() {
           amount: orderData.amount,
           currency: orderData.currency || "INR",
           name: "ParkSense Smart Parking",
-          description: `Slot ${orderData.slot} · ${selectedDuration} min parking`,
+          description: `Slot ${session.slot} · ${selectedDuration} min parking`,
           order_id: orderData.order_id,
           prefill: {
             email: email.trim() || undefined,
             contact: phone.trim() || undefined,
           },
           theme: { color: "#10b981" },
-          handler: () => {
-            // Webhook will set status to paid; immediately trigger a poll
-            setTimeout(fetchSession, 1000);
+          handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+            const verification = await fetch("/api/public/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(response),
+            });
+            if (!verification.ok) {
+              const result = await verification.json();
+              setError(result.error || "Payment confirmation is still processing.");
+            }
+            await fetchSession();
           },
         });
         rzp.open();
@@ -148,7 +158,7 @@ function DriverPaymentPage() {
   };
 
   // Extend Session
-  const handleExtend = async (extraMinutes: 30 | 60) => {
+  const handleExtend = async (extraMinutes: number) => {
     if (!session) return;
     setExtending(true);
     setError(null);
@@ -158,8 +168,9 @@ function DriverPaymentPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          session_id: session.id,
-          extra_minutes: String(extraMinutes),
+          code,
+          duration_min: extraMinutes,
+          kind: "extend",
         }),
       });
 
@@ -175,8 +186,17 @@ function DriverPaymentPage() {
           description: data.description,
           order_id: data.order_id,
           theme: { color: "#10b981" },
-          handler: () => {
-            setTimeout(fetchSession, 1000);
+          handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
+            const verification = await fetch("/api/public/verify-payment", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(response),
+            });
+            if (!verification.ok) {
+              const result = await verification.json();
+              setError(result.error || "Extension confirmation is still processing.");
+            }
+            await fetchSession();
           },
         });
         rzp.open();
@@ -214,13 +234,13 @@ function DriverPaymentPage() {
     );
   }
 
-  const amount = (selectedDuration / 30) * RATE_PER_30MIN;
+  const options = session?.price_options?.length
+    ? session.price_options.map((option) => ({ minutes: option.duration_min, amount: option.amount / 100 }))
+    : durationOptions();
+  const amount = options.find((option) => option.minutes === selectedDuration)?.amount
+    ?? pricePaise(selectedDuration, DEFAULT_SETTINGS.price_per_hour) / 100;
 
-  // Calculate countdown
-  let remainingMs = 0;
-  if (session?.ends_at) {
-    remainingMs = Math.max(0, Date.parse(session.ends_at) - now);
-  }
+  const remainingMs = Math.max(0, (session?.seconds_remaining ?? 0) * 1000 - (now - receivedAt));
   const remainingMinutes = Math.floor(remainingMs / 60000);
   const remainingSeconds = Math.floor((remainingMs % 60000) / 1000);
 
@@ -246,7 +266,7 @@ function DriverPaymentPage() {
       {/* Main Content Area */}
       <main className="my-auto py-6">
         {/* State 1: Awaiting Payment */}
-        {session?.status === "awaiting_payment" && (
+        {session?.status === "pending" && (
           <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
             {/* Slot Announcement Card */}
             <div className="rounded-2xl border border-primary/20 bg-primary/5 p-6 text-center shadow-sm">
@@ -257,7 +277,7 @@ function DriverPaymentPage() {
                 Slot {session.slot}
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                Reserved for your vehicle · Rate ₹{RATE_PER_30MIN} / 30 min
+                Reserved for your vehicle · Rate ₹{DEFAULT_SETTINGS.price_per_hour} / hour
               </p>
             </div>
 
@@ -267,7 +287,7 @@ function DriverPaymentPage() {
                 Select Parking Duration
               </Label>
               <div className="grid grid-cols-2 gap-2">
-                {durationOptions.map((opt) => {
+                {options.map((opt) => {
                   const isSelected = selectedDuration === opt.minutes;
                   return (
                     <button
@@ -390,7 +410,7 @@ function DriverPaymentPage() {
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                   <PlusCircle className="size-3.5 text-primary" /> Extend Session
                 </span>
-                <span className="text-[11px] text-muted-foreground">Max 5 hours</span>
+                <span className="text-[11px] text-muted-foreground">Paid securely with Razorpay</span>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <Button
@@ -400,7 +420,7 @@ function DriverPaymentPage() {
                   className="flex flex-col h-14"
                 >
                   <span className="text-xs font-bold">+30 Minutes</span>
-                  <span className="text-[10px] text-muted-foreground">₹20</span>
+                  <span className="text-[10px] text-muted-foreground">₹{pricePaise(30, DEFAULT_SETTINGS.price_per_hour) / 100}</span>
                 </Button>
                 <Button
                   variant="outline"
@@ -409,7 +429,7 @@ function DriverPaymentPage() {
                   className="flex flex-col h-14"
                 >
                   <span className="text-xs font-bold">+60 Minutes</span>
-                  <span className="text-[10px] text-muted-foreground">₹40</span>
+                  <span className="text-[10px] text-muted-foreground">₹{pricePaise(60, DEFAULT_SETTINGS.price_per_hour) / 100}</span>
                 </Button>
               </div>
             </div>
