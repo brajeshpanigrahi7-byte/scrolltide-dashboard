@@ -172,6 +172,36 @@ describe("ESP32 Device API Endpoints", () => {
     expect(res.status).toBe(409);
   });
 
+  it("POST /device-session does NOT return 409 when old pending or expired session exists for slot 1, expires old and creates new", async () => {
+    // Put an old pending session on slot 1
+    mockDb.sessions.push({
+      id: "sess-old-pending",
+      code: "OLD001",
+      slot: 1,
+      device_id: "esp32-entry-1",
+      status: "pending",
+      expires_at: new Date(Date.now() + 60000).toISOString(),
+    });
+
+    const req = new Request("https://example.com/device-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-device-key": "test-device-secret-123",
+      },
+      body: JSON.stringify({ device: "esp32-entry-1", slot: 1 }),
+    });
+
+    const res = await deviceSession(req);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.session_id).toBeDefined();
+    expect(data.code).toBeDefined();
+    // Verify old session was marked expired
+    const old = mockDb.sessions.find((s) => s.id === "sess-old-pending");
+    expect(old?.status).toBe("expired");
+  });
+
   it("GET /device-poll returns flat compact JSON status and paid duration", async () => {
     // 1. Pending session
     mockDb.sessions.push({
@@ -240,6 +270,21 @@ describe("ESP32 Device API Endpoints", () => {
     expect(data.exit_open).toBe(false);
     expect(Array.isArray(data.warn_slots)).toBe(true);
     expect(Object.keys(data).sort()).toEqual(["exit_open", "warn_slots"].sort());
+  });
+
+  it("GET /device-due returns 200 with {exit_open:false,warn_slots:[]} when device has no sessions yet", async () => {
+    mockDb.sessions = [];
+    mockDb.devices = [];
+    mockDb.device_commands = [];
+
+    const req = new Request("https://example.com/device-due?device=esp32-entry-1", {
+      headers: { "x-device-key": "test-device-secret-123" },
+    });
+
+    const res = await deviceDue(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data).toEqual({ exit_open: false, warn_slots: [] });
   });
 });
 
