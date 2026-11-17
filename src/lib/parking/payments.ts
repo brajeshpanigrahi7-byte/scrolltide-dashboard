@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export const DEFAULT_SETTINGS = {
   price_per_hour: 20,
   duration_options: [30, 60, 120, 180, 240],
@@ -7,7 +9,7 @@ export const DEFAULT_SETTINGS = {
 } as const;
 
 export const PAYMENT_TTL_MS = 5 * 60 * 1000;
-export const sessionIdSchema = { safeParse: undefined } as never;
+export const sessionIdSchema = z.string().uuid();
 
 export function pricePaise(durationMin: number, pricePerHour: number): number {
   return Math.ceil((durationMin / 60) * pricePerHour * 100);

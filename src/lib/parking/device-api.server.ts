@@ -158,7 +158,7 @@ export async function deviceEvent(request: Request) {
   if (event.state === 2 && previousDevice?.entry_state !== 2) {
     await supabaseAdmin.from("activity_logs").insert({
       device: event.device, event: "entered", device_id: event.device, type: "entry_gate_opened",
-      session: undefined, session_id: event.session ?? null, slot: event.slot ?? null, message: "Entry barrier opened",
+      session_id: event.session ?? null, slot: event.slot ?? null, message: "Entry barrier opened",
     });
   }
   if (event.exit_open !== undefined && event.exit_open !== previousDevice?.exit_open) {

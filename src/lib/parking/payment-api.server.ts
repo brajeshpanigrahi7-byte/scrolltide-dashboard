@@ -24,8 +24,8 @@ export async function razorpayWebhook(request: Request) {
     if (record) {
       const { data: session } = await supabaseAdmin.from("sessions").select("device_id,slot").eq("id", record.session_id).single();
       await supabaseAdmin.from("activity_logs").insert({
-        device: session?.device_id ?? "webhook", event: "payment_failed", device_id: session?.device_id,
-        type: "payment_failed", session_id: record.session_id, slot: session?.slot,
+        device: session?.device_id ?? "webhook", event: "payment_failed", device_id: session?.device_id ?? null,
+        type: "payment_failed", session_id: record.session_id, slot: session?.slot ?? null,
         message: "Razorpay payment failed",
       });
     }
