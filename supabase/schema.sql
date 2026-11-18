@@ -134,6 +134,11 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 -- Service role full access
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
+-- Grants on device_commands
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.device_commands TO authenticated;
+GRANT SELECT, UPDATE ON public.device_commands TO anon;
+GRANT ALL ON public.device_commands TO service_role;
+
 -- Authenticated admins can SELECT all tables
 CREATE POLICY admin_select_devices ON public.devices FOR SELECT TO authenticated USING (true);
 CREATE POLICY admin_select_slots ON public.slots FOR SELECT TO authenticated USING (true);
@@ -141,9 +146,31 @@ CREATE POLICY admin_select_sessions ON public.sessions FOR SELECT TO authenticat
 CREATE POLICY admin_select_payments ON public.payments FOR SELECT TO authenticated USING (true);
 CREATE POLICY admin_select_telemetry ON public.device_telemetry FOR SELECT TO authenticated USING (true);
 CREATE POLICY admin_select_logs ON public.activity_logs FOR SELECT TO authenticated USING (true);
-CREATE POLICY admin_select_commands ON public.device_commands FOR ALL TO authenticated USING (true);
 CREATE POLICY admin_manage_settings ON public.settings FOR ALL TO authenticated USING (true);
 CREATE POLICY admin_select_roles ON public.user_roles FOR SELECT TO authenticated USING (true);
+
+-- device_commands RLS policies
+CREATE POLICY admins_insert_commands ON public.device_commands
+  FOR INSERT TO authenticated
+  WITH CHECK (true);
+
+CREATE POLICY admins_select_commands ON public.device_commands
+  FOR SELECT TO authenticated
+  USING (true);
+
+CREATE POLICY admins_update_commands ON public.device_commands
+  FOR UPDATE TO authenticated
+  USING (true)
+  WITH CHECK (true);
+
+CREATE POLICY anon_read_pending_commands ON public.device_commands
+  FOR SELECT TO anon
+  USING (consumed_at IS NULL);
+
+CREATE POLICY anon_update_pending_commands ON public.device_commands
+  FOR UPDATE TO anon
+  USING (consumed_at IS NULL)
+  WITH CHECK (consumed_at IS NOT NULL);
 
 -- Enable Supabase Realtime
 DO $$

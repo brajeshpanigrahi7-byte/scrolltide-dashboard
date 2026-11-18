@@ -6,6 +6,7 @@ import { TIMING } from "@/lib/parking/types";
 import { Button } from "@/components/ui/button";
 import { GateVisual, LogList, Oled, Panel, Pill, fmtTime } from "@/components/dash/kit";
 import { supabase } from "@/integrations/supabase/client";
+import { openExitGate } from "@/lib/parking/admin.functions";
 
 export const Route = createFileRoute("/exit")({
   head: () => ({
@@ -33,11 +34,24 @@ export function Exit() {
         actions.triggerExit();
         setGateMsg("Simulated exit gate opened for 60 seconds.");
       } else {
+        // Attempt direct Supabase insert
         const { error } = await supabase.from("device_commands").insert({
           device_id: "esp32-entry-1",
           command: "open_exit",
         });
-        if (error) throw error;
+
+        if (error) {
+          // If direct insert encounters RLS policy violation, fallback to server action
+          console.warn("Direct insert to device_commands failed, using openExitGate fallback:", error);
+          try {
+            const serverRes = await openExitGate({ data: { device_id: "esp32-entry-1" } });
+            if (!serverRes?.ok) {
+              throw error;
+            }
+          } catch {
+            throw error;
+          }
+        }
         setGateMsg("Command sent! ESP32 will open exit barrier on next poll (within 5 s).");
       }
       setTimeout(() => setGateMsg(null), 5000);

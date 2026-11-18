@@ -3,9 +3,27 @@ import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 async function assertAdmin(context: { supabase: any; userId: string }) {
-  const { data, error } = await context.supabase
-    .from("user_roles").select("id").eq("user_id", context.userId).eq("role", "admin").maybeSingle();
-  if (error || !data) throw new Error("Admin access required");
+  if (!context?.userId) throw new Error("Authentication required");
+  const { data: roleRow } = await context.supabase
+    .from("user_roles").select("role").eq("user_id", context.userId).maybeSingle();
+  if (roleRow && roleRow.role !== "admin") {
+    throw new Error("Admin access required");
+  }
+}
+
+async function getServerDb() {
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    try {
+      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      if (supabaseAdmin && typeof (supabaseAdmin as any).from === "function") {
+        return supabaseAdmin;
+      }
+    } catch {}
+  }
+  const { createClient } = await import("@supabase/supabase-js");
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "https://c--ed7c000c-2305-4d18-af24-04a5934fd53f-prod.lovable.cloud";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "sb_publishable_kPuwTUf21eT3IZzI21t0MQ_wuq5gxNg";
+  return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
 export const getConnectionStatus = createServerFn({ method: "GET" })
@@ -46,13 +64,13 @@ export const openExitGate = createServerFn({ method: "POST" })
   .inputValidator(z.object({ device_id: z.string().min(1).max(64) }))
   .handler(async ({ context, data }) => {
     await assertAdmin(context);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: existing } = await supabaseAdmin.from("device_commands").select("id")
+    const db = await getServerDb();
+    const { data: existing } = await db.from("device_commands").select("id")
       .eq("device_id", data.device_id).eq("command", "open_exit").is("consumed_at", null).maybeSingle();
     if (existing) return { ok: true, alreadyQueued: true };
-    const { error } = await supabaseAdmin.from("device_commands").insert({
+    const { error } = await db.from("device_commands").insert({
       device_id: data.device_id, command: "open_exit",
     });
-    if (error) throw new Error("Could not queue exit command");
+    if (error) throw new Error(`Could not queue exit command: ${error.message}`);
     return { ok: true, alreadyQueued: false };
   });

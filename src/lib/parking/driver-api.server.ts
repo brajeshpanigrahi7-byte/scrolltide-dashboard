@@ -299,3 +299,16 @@ export async function leaveNow(request: Request): Promise<Response> {
 
   return json({ ok: true });
 }
+
+export const leaveSession = leaveNow;
+
+export function publicOptions(): Response {
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "content-type, authorization, x-device-key",
+    },
+  });
+}
