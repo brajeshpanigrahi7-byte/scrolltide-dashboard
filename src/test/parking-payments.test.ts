@@ -1,32 +1,36 @@
 import { describe, expect, it } from "vitest";
-import { createSessionSchema, durationOptions, effectiveStatus, todayCollected } from "@/lib/parking/payments";
+import { durationOptions, effectiveStatus, payUrl, pricePaise, todayCollected } from "@/lib/parking/payments";
 
 describe("parking payment rules", () => {
-  it("charges ₹20 per 30 minutes up to five hours", () => {
-    expect(durationOptions).toEqual(Array.from({ length: 10 }, (_, i) => ({ minutes: (i + 1) * 30, amount: (i + 1) * 20 })));
-    for (const amount_inr of [0, 19, 21, 201, 220]) expect(createSessionSchema.safeParse({ slot: 1, amount_inr }).success).toBe(false);
-    expect(createSessionSchema.parse({ slot: 5, amount_inr: 200 })).toEqual({ slot: 5, amount_inr: 200 });
+  it("uses the latest ₹20/hour tariff and duration choices", () => {
+    expect(durationOptions()).toEqual([
+      { minutes: 30, amount: 10 }, { minutes: 60, amount: 20 }, { minutes: 120, amount: 40 },
+      { minutes: 180, amount: 60 }, { minutes: 240, amount: 80 },
+    ]);
+    expect(pricePaise(30, 20)).toBe(1000);
+    expect(pricePaise(240, 20)).toBe(8000);
   });
-  it("accepts only integer slots one through five", () => {
-    for (const slot of [0, 6, 1.5]) expect(createSessionSchema.safeParse({ slot, amount_inr: 20 }).success).toBe(false);
+  it("expires only pending sessions after five minutes", () => {
+    const expires_at = "2026-11-15T04:05:00Z";
+    const end = Date.parse(expires_at);
+    expect(effectiveStatus({ status: "pending", expires_at }, end - 1)).toBe("pending");
+    expect(effectiveStatus({ status: "pending", expires_at }, end)).toBe("expired");
+    for (const status of ["paid", "active", "completed", "cancelled"]) {
+      expect(effectiveStatus({ status, expires_at }, end)).toBe(status);
+    }
   });
-  it("expires pending sessions after exactly fifteen minutes but never expires paid or used sessions", () => {
-    const created_at = "2026-11-15T04:00:00Z";
-    const start = Date.parse(created_at);
-    expect(effectiveStatus({ status: "pending", created_at }, start + 899999)).toBe("pending");
-    expect(effectiveStatus({ status: "pending", created_at }, start + 900000)).toBe("expired");
-    for (const status of ["paid", "used", "expired"]) expect(effectiveStatus({ status, created_at }, start + 900000)).toBe(status);
-  });
-  it("counts only verified paid and used payments within today's India calendar day", () => {
+  it("counts captured payments in today's India calendar day", () => {
     const rows = [
-      { status: "paid", amount_inr: 20, paid_at: "2026-11-14T18:30:00Z" },
-      { status: "used", amount_inr: 200, paid_at: "2026-11-15T18:29:59Z" },
-      { status: "paid", amount_inr: 40, paid_at: "2026-11-14T18:29:59Z" },
-      { status: "paid", amount_inr: 60, paid_at: "2026-11-15T18:30:00Z" },
-      { status: "pending", amount_inr: 80, paid_at: "2026-11-15T05:00:00Z" },
-      { status: "expired", amount_inr: 100, paid_at: "2026-11-15T05:00:00Z" },
-      { status: "paid", amount_inr: 120, paid_at: null },
+      { status: "captured", amount_paise: 2000, created_at: "2026-11-14T18:30:00Z" },
+      { status: "captured", amount_paise: 1000, created_at: "2026-11-15T18:29:59Z" },
+      { status: "created", amount_paise: 4000, created_at: "2026-11-15T05:00:00Z" },
+      { status: "needs_refund", amount_paise: 6000, created_at: "2026-11-15T05:00:00Z" },
     ];
-    expect(todayCollected(rows, Date.parse("2026-11-15T05:03:00Z"))).toBe(220);
+    expect(todayCollected(rows, Date.parse("2026-11-15T05:03:00Z"))).toBe(30);
+  });
+  it("keeps device QR URLs within 53 characters", () => {
+    expect(payUrl("AB23CD")).toBe("https://scrolltide-dashboard.lovable.app/p/AB23CD");
+    expect(payUrl("AB23CD").length).toBeLessThanOrEqual(53);
+    expect(() => payUrl("AB23CD", "https://a-much-longer-parking-domain.example.com")).toThrow();
   });
 });

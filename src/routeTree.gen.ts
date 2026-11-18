@@ -27,7 +27,11 @@ import { Route as ApiPublicDeviceEventRouteImport } from './routes/api/public/de
 import { Route as ApiPublicDevicePollRouteImport } from './routes/api/public/device-poll'
 import { Route as ApiPublicDeviceSessionRouteImport } from './routes/api/public/device-session'
 import { Route as ApiPublicExtendSessionRouteImport } from './routes/api/public/extend-session'
+<<<<<<< HEAD
 import { Route as ApiPublicLeaveNowRouteImport } from './routes/api/public/leave-now'
+=======
+import { Route as ApiPublicLeaveSessionRouteImport } from './routes/api/public/leave-session'
+>>>>>>> origin/main
 import { Route as ApiPublicRazorpayWebhookRouteImport } from './routes/api/public/razorpay-webhook'
 import { Route as ApiPublicSessionPublicRouteImport } from './routes/api/public/session-public'
 import { Route as ApiPublicSessionStatusRouteImport } from './routes/api/public/session-status'
@@ -123,9 +127,15 @@ const ApiPublicExtendSessionRoute = ApiPublicExtendSessionRouteImport.update({
   path: '/api/public/extend-session',
   getParentRoute: () => rootRouteImport,
 } as any)
+<<<<<<< HEAD
 const ApiPublicLeaveNowRoute = ApiPublicLeaveNowRouteImport.update({
   id: '/api/public/leave-now',
   path: '/api/public/leave-now',
+=======
+const ApiPublicLeaveSessionRoute = ApiPublicLeaveSessionRouteImport.update({
+  id: '/api/public/leave-session',
+  path: '/api/public/leave-session',
+>>>>>>> origin/main
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicRazorpayWebhookRoute =
@@ -169,7 +179,11 @@ export interface FileRoutesByFullPath {
   '/api/public/device-poll': typeof ApiPublicDevicePollRoute
   '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
   '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
+<<<<<<< HEAD
   '/api/public/leave-now': typeof ApiPublicLeaveNowRoute
+=======
+  '/api/public/leave-session': typeof ApiPublicLeaveSessionRoute
+>>>>>>> origin/main
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-public': typeof ApiPublicSessionPublicRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
@@ -194,7 +208,11 @@ export interface FileRoutesByTo {
   '/api/public/device-poll': typeof ApiPublicDevicePollRoute
   '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
   '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
+<<<<<<< HEAD
   '/api/public/leave-now': typeof ApiPublicLeaveNowRoute
+=======
+  '/api/public/leave-session': typeof ApiPublicLeaveSessionRoute
+>>>>>>> origin/main
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-public': typeof ApiPublicSessionPublicRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
@@ -220,7 +238,11 @@ export interface FileRoutesById {
   '/api/public/device-poll': typeof ApiPublicDevicePollRoute
   '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
   '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
+<<<<<<< HEAD
   '/api/public/leave-now': typeof ApiPublicLeaveNowRoute
+=======
+  '/api/public/leave-session': typeof ApiPublicLeaveSessionRoute
+>>>>>>> origin/main
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-public': typeof ApiPublicSessionPublicRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
@@ -247,7 +269,11 @@ export interface FileRouteTypes {
     | '/api/public/device-poll'
     | '/api/public/device-session'
     | '/api/public/extend-session'
+<<<<<<< HEAD
     | '/api/public/leave-now'
+=======
+    | '/api/public/leave-session'
+>>>>>>> origin/main
     | '/api/public/razorpay-webhook'
     | '/api/public/session-public'
     | '/api/public/session-status'
@@ -272,7 +298,11 @@ export interface FileRouteTypes {
     | '/api/public/device-poll'
     | '/api/public/device-session'
     | '/api/public/extend-session'
+<<<<<<< HEAD
     | '/api/public/leave-now'
+=======
+    | '/api/public/leave-session'
+>>>>>>> origin/main
     | '/api/public/razorpay-webhook'
     | '/api/public/session-public'
     | '/api/public/session-status'
@@ -297,7 +327,11 @@ export interface FileRouteTypes {
     | '/api/public/device-poll'
     | '/api/public/device-session'
     | '/api/public/extend-session'
+<<<<<<< HEAD
     | '/api/public/leave-now'
+=======
+    | '/api/public/leave-session'
+>>>>>>> origin/main
     | '/api/public/razorpay-webhook'
     | '/api/public/session-public'
     | '/api/public/session-status'
@@ -323,7 +357,11 @@ export interface RootRouteChildren {
   ApiPublicDevicePollRoute: typeof ApiPublicDevicePollRoute
   ApiPublicDeviceSessionRoute: typeof ApiPublicDeviceSessionRoute
   ApiPublicExtendSessionRoute: typeof ApiPublicExtendSessionRoute
+<<<<<<< HEAD
   ApiPublicLeaveNowRoute: typeof ApiPublicLeaveNowRoute
+=======
+  ApiPublicLeaveSessionRoute: typeof ApiPublicLeaveSessionRoute
+>>>>>>> origin/main
   ApiPublicRazorpayWebhookRoute: typeof ApiPublicRazorpayWebhookRoute
   ApiPublicSessionPublicRoute: typeof ApiPublicSessionPublicRoute
   ApiPublicSessionStatusRoute: typeof ApiPublicSessionStatusRoute
@@ -458,11 +496,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicExtendSessionRouteImport
       parentRoute: typeof rootRouteImport
     }
+<<<<<<< HEAD
     '/api/public/leave-now': {
       id: '/api/public/leave-now'
       path: '/api/public/leave-now'
       fullPath: '/api/public/leave-now'
       preLoaderRoute: typeof ApiPublicLeaveNowRouteImport
+=======
+    '/api/public/leave-session': {
+      id: '/api/public/leave-session'
+      path: '/api/public/leave-session'
+      fullPath: '/api/public/leave-session'
+      preLoaderRoute: typeof ApiPublicLeaveSessionRouteImport
+>>>>>>> origin/main
       parentRoute: typeof rootRouteImport
     }
     '/api/public/razorpay-webhook': {
@@ -515,7 +561,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicDevicePollRoute: ApiPublicDevicePollRoute,
   ApiPublicDeviceSessionRoute: ApiPublicDeviceSessionRoute,
   ApiPublicExtendSessionRoute: ApiPublicExtendSessionRoute,
+<<<<<<< HEAD
   ApiPublicLeaveNowRoute: ApiPublicLeaveNowRoute,
+=======
+  ApiPublicLeaveSessionRoute: ApiPublicLeaveSessionRoute,
+>>>>>>> origin/main
   ApiPublicRazorpayWebhookRoute: ApiPublicRazorpayWebhookRoute,
   ApiPublicSessionPublicRoute: ApiPublicSessionPublicRoute,
   ApiPublicSessionStatusRoute: ApiPublicSessionStatusRoute,

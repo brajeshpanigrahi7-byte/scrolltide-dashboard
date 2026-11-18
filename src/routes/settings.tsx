@@ -255,12 +255,16 @@ function SettingsPage() {
       {/* 3. Razorpay Test Payment */}
       <Panel title="Razorpay Test Payment">
         <p className="text-sm text-muted-foreground mb-4">
+<<<<<<< HEAD
           Creates a real ₹20 parking session (Slot 1, 30 min duration) and opens the Razorpay pay link in a new window.
+=======
+          Creates a real parking session for Slot 1 and opens its ParkSense pay page, where Razorpay Checkout collects the payment.
+>>>>>>> origin/main
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={handleTestPayment} disabled={testLoading} className="flex items-center gap-2">
             {testLoading ? <RefreshCw className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
-            Test payment (₹20)
+            Test live payment
           </Button>
           {lastPayUrl && (
             <Button asChild variant="outline">
@@ -274,6 +278,7 @@ function SettingsPage() {
         {testError && <p className="mt-3 text-xs text-destructive">{testError}</p>}
       </Panel>
 
+<<<<<<< HEAD
       {/* 4. Parking Tariff & Rules Settings */}
       <Panel title="Parking Tariff & Rules">
         <div className="space-y-3.5">
@@ -286,6 +291,14 @@ function SettingsPage() {
                 onChange={(e) => setPricePerHour(Number(e.target.value))}
                 className="mt-1 h-9 font-mono text-sm"
               />
+=======
+      <Panel title="Parking tariff">
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          {durationOptions().map((option) => (
+            <div key={option.minutes} className="flex justify-between border-b border-border py-2">
+              <span>{option.minutes} min</span>
+              <span>₹{option.amount}</span>
+>>>>>>> origin/main
             </div>
             <div>
               <Label className="text-xs text-muted-foreground">Reminder Window (minutes)</Label>

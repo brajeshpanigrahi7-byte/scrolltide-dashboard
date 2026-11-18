@@ -8,6 +8,13 @@
       "when": 1794623648773,
       "tag": "0000_parking_sessions_realtime",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794847507354,
+      "tag": "0001_parksense_live_hardware_payments",
+      "breakpoints": true
     }
   ]
 }
