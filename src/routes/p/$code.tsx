@@ -19,10 +19,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-<<<<<<< HEAD
-=======
-import { DEFAULT_SETTINGS, durationOptions, pricePaise } from "@/lib/parking/payments";
->>>>>>> origin/main
 
 declare global {
   interface Window {
@@ -46,7 +42,6 @@ export const Route = createFileRoute("/p/$code")({
   component: DriverPaymentPage,
 });
 
-<<<<<<< HEAD
 interface PriceOption {
   duration_min: number;
   amount_inr: number;
@@ -63,17 +58,6 @@ interface SessionData {
   vehicle_no: string | null;
   price_options: PriceOption[];
   price_per_hour: number;
-=======
-interface SessionData {
-  slot: number;
-  status: "pending" | "paid" | "active" | "completed" | "expired" | "cancelled" | string;
-  duration_min: number;
-  amount: number;
-  seconds_remaining: number;
-  expires_in: number;
-  price_options: { duration_min: number; amount: number }[];
-  payment_id: string | null;
->>>>>>> origin/main
 }
 
 function DriverPaymentPage() {
@@ -85,17 +69,10 @@ function DriverPaymentPage() {
   const [vehicleNo, setVehicleNo] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-<<<<<<< HEAD
   const [paying, setPaying] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [paymentSuccessMessage, setPaymentSuccessMessage] = useState<string | null>(null);
   const [notifiedTenMin, setNotifiedTenMin] = useState(false);
-=======
-  const [submitting, setSubmitting] = useState(false);
-  const [extending, setExtending] = useState(false);
-  const [now, setNow] = useState(Date.now());
-  const [receivedAt, setReceivedAt] = useState(Date.now());
->>>>>>> origin/main
 
   // Request browser notification permission once
   useEffect(() => {
@@ -119,7 +96,6 @@ function DriverPaymentPage() {
 
       const data: SessionData = await res.json();
       setSession(data);
-<<<<<<< HEAD
       if (data.vehicle_no && !vehicleNo) setVehicleNo(data.vehicle_no);
 
       // Check 10-minute warning notification
@@ -133,10 +109,6 @@ function DriverPaymentPage() {
         }
       }
 
-=======
-      setReceivedAt(Date.now());
-      if (data.duration_min) setSelectedDuration(data.duration_min);
->>>>>>> origin/main
       setError(null);
     } catch (err: any) {
       setError(err.message || "Failed to fetch session");
@@ -161,20 +133,14 @@ function DriverPaymentPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code,
-<<<<<<< HEAD
           duration_min: durationMin,
           kind,
           vehicle_no: vehicleNo.trim() || undefined,
-=======
-          duration_min: selectedDuration,
-          kind: "new",
->>>>>>> origin/main
           contact_email: email.trim() || undefined,
           contact_phone: phone.trim() || undefined,
         }),
       });
 
-<<<<<<< HEAD
       if (!orderRes.ok) {
         orderRes = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/create-order", {
           method: "POST",
@@ -187,36 +153,6 @@ function DriverPaymentPage() {
             contact_email: email.trim() || undefined,
             contact_phone: phone.trim() || undefined,
           }),
-=======
-      const orderData = await res.json();
-      if (!res.ok) throw new Error(orderData.error || "Order creation failed.");
-
-      if (window.Razorpay && orderData.order_id && orderData.key_id) {
-        const rzp = new window.Razorpay({
-          key: orderData.key_id,
-          amount: orderData.amount,
-          currency: orderData.currency || "INR",
-          name: "ParkSense Smart Parking",
-          description: `Slot ${session.slot} · ${selectedDuration} min parking`,
-          order_id: orderData.order_id,
-          prefill: {
-            email: email.trim() || undefined,
-            contact: phone.trim() || undefined,
-          },
-          theme: { color: "#10b981" },
-          handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
-            const verification = await fetch("/api/public/verify-payment", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(response),
-            });
-            if (!verification.ok) {
-              const result = await verification.json();
-              setError(result.error || "Payment confirmation is still processing.");
-            }
-            await fetchSession();
-          },
->>>>>>> origin/main
         });
       }
 
@@ -288,24 +224,14 @@ function DriverPaymentPage() {
     }
   };
 
-<<<<<<< HEAD
   // Driver clicks "I'm leaving now"
   const handleLeaveNow = async () => {
     if (!confirm("Are you ready to leave now? The exit gate will open for you.")) return;
     setLeaving(true);
-=======
-  // Extend Session
-  const handleExtend = async (extraMinutes: number) => {
-    if (!session) return;
-    setExtending(true);
-    setError(null);
-
->>>>>>> origin/main
     try {
       let res = await fetch("/api/public/leave-now", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-<<<<<<< HEAD
         body: JSON.stringify({ code }),
       });
       if (!res.ok) {
@@ -313,39 +239,6 @@ function DriverPaymentPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ code }),
-=======
-        body: JSON.stringify({
-          code,
-          duration_min: extraMinutes,
-          kind: "extend",
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Could not extend session.");
-
-      if (window.Razorpay && data.order_id && data.key_id) {
-        const rzp = new window.Razorpay({
-          key: data.key_id,
-          amount: data.amount,
-          currency: data.currency || "INR",
-          name: "ParkSense Extension",
-          description: data.description,
-          order_id: data.order_id,
-          theme: { color: "#10b981" },
-          handler: async (response: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => {
-            const verification = await fetch("/api/public/verify-payment", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(response),
-            });
-            if (!verification.ok) {
-              const result = await verification.json();
-              setError(result.error || "Extension confirmation is still processing.");
-            }
-            await fetchSession();
-          },
->>>>>>> origin/main
         });
       }
       fetchSession();
@@ -367,7 +260,6 @@ function DriverPaymentPage() {
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-<<<<<<< HEAD
   const durationOptionsList = session?.price_options || [
     { duration_min: 30, amount_inr: 20 },
     { duration_min: 60, amount_inr: 40 },
@@ -375,32 +267,6 @@ function DriverPaymentPage() {
     { duration_min: 180, amount_inr: 120 },
     { duration_min: 240, amount_inr: 160 },
   ];
-=======
-  if (error && !session) {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="w-full max-w-sm rounded-2xl border border-destructive/20 bg-card p-6 text-center shadow-lg">
-          <AlertTriangle className="mx-auto size-12 text-destructive mb-3" />
-          <h2 className="text-lg font-semibold text-foreground">Session Error</h2>
-          <p className="mt-2 text-sm text-muted-foreground">{error}</p>
-          <Button onClick={fetchSession} className="mt-6 w-full" variant="outline">
-            Try Again
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  const options = session?.price_options?.length
-    ? session.price_options.map((option) => ({ minutes: option.duration_min, amount: option.amount / 100 }))
-    : durationOptions();
-  const amount = options.find((option) => option.minutes === selectedDuration)?.amount
-    ?? pricePaise(selectedDuration, DEFAULT_SETTINGS.price_per_hour) / 100;
-
-  const remainingMs = Math.max(0, (session?.seconds_remaining ?? 0) * 1000 - (now - receivedAt));
-  const remainingMinutes = Math.floor(remainingMs / 60000);
-  const remainingSeconds = Math.floor((remainingMs % 60000) / 1000);
->>>>>>> origin/main
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center p-4 selection:bg-emerald-500/20">
@@ -421,7 +287,6 @@ function DriverPaymentPage() {
           </div>
         </div>
 
-<<<<<<< HEAD
         {loading ? (
           <div className="py-12 flex flex-col items-center justify-center gap-3 text-slate-400">
             <RefreshCw className="size-6 animate-spin text-emerald-500" />
@@ -434,86 +299,6 @@ function DriverPaymentPage() {
               <span>Error</span>
             </div>
             <p className="text-xs text-rose-300/90">{error}</p>
-=======
-      {/* Main Content Area */}
-      <main className="my-auto py-6">
-        {/* State 1: Awaiting Payment */}
-        {session?.status === "pending" && (
-          <div className="space-y-6 animate-in fade-in zoom-in-95 duration-300">
-            {/* Slot Announcement Card */}
-            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-6 text-center shadow-sm">
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
-                <Car className="size-3.5" /> Barrier Ready
-              </span>
-              <div className="mt-3 text-4xl font-extrabold tracking-tight text-foreground">
-                Slot {session.slot}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Reserved for your vehicle · Rate ₹{DEFAULT_SETTINGS.price_per_hour} / hour
-              </p>
-            </div>
-
-            {/* Duration Selector */}
-            <div className="space-y-3">
-              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Select Parking Duration
-              </Label>
-              <div className="grid grid-cols-2 gap-2">
-                {options.map((opt) => {
-                  const isSelected = selectedDuration === opt.minutes;
-                  return (
-                    <button
-                      key={opt.minutes}
-                      type="button"
-                      onClick={() => setSelectedDuration(opt.minutes)}
-                      className={`flex items-center justify-between rounded-xl border p-3 text-left transition-all ${
-                        isSelected
-                          ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/30"
-                          : "border-border/60 bg-card hover:border-primary/40 text-muted-foreground"
-                      }`}
-                    >
-                      <span className="text-xs font-medium">{opt.minutes} mins</span>
-                      <span className="font-mono text-xs font-bold text-foreground">₹{opt.amount}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Reminder Details (Optional) */}
-            <div className="space-y-3 rounded-2xl border border-border/60 bg-card p-4">
-              <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-                <Clock className="size-3.5" /> Expiry Reminders (Optional)
-              </span>
-              <div className="space-y-2">
-                <div className="relative">
-                  <Mail className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    type="email"
-                    placeholder="driver@example.com"
-                    className="pl-9 text-xs"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-                  <Input
-                    type="tel"
-                    placeholder="10-digit mobile number"
-                    className="pl-9 text-xs"
-                    value={phone}
-                    maxLength={10}
-                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ""))}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {error && <p className="text-center text-xs text-destructive">{error}</p>}
-
-            {/* Payment Button */}
->>>>>>> origin/main
             <Button
               variant="outline"
               size="sm"
@@ -602,24 +387,11 @@ function DriverPaymentPage() {
                   </div>
                 </div>
 
-<<<<<<< HEAD
-=======
-            {/* Extend Buttons */}
-            <div className="rounded-2xl border border-border/60 bg-card p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                  <PlusCircle className="size-3.5 text-primary" /> Extend Session
-                </span>
-                <span className="text-[11px] text-muted-foreground">Paid securely with Razorpay</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
->>>>>>> origin/main
                 <Button
                   onClick={() => handlePayment(selectedDuration, "new")}
                   disabled={paying}
                   className="w-full h-11 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-sm shadow-lg shadow-emerald-950/50 flex items-center justify-center gap-2"
                 >
-<<<<<<< HEAD
                   {paying ? (
                     <>
                       <RefreshCw className="size-4 animate-spin" />
@@ -635,19 +407,6 @@ function DriverPaymentPage() {
                       <ArrowRight className="size-4" />
                     </>
                   )}
-=======
-                  <span className="text-xs font-bold">+30 Minutes</span>
-                  <span className="text-[10px] text-muted-foreground">₹{pricePaise(30, DEFAULT_SETTINGS.price_per_hour) / 100}</span>
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={extending}
-                  onClick={() => handleExtend(60)}
-                  className="flex flex-col h-14"
-                >
-                  <span className="text-xs font-bold">+60 Minutes</span>
-                  <span className="text-[10px] text-muted-foreground">₹{pricePaise(60, DEFAULT_SETTINGS.price_per_hour) / 100}</span>
->>>>>>> origin/main
                 </Button>
               </div>
             )}

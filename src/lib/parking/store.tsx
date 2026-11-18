@@ -62,18 +62,13 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(t);
   }, [mode]);
 
-<<<<<<< HEAD
   // Live mode: reads ESP32 online/offline, 5 slots, sessions, telemetry, and logs from Supabase
-=======
-  // Live mode reads the current device, slot and activity tables.
->>>>>>> origin/main
   useEffect(() => {
     if (mode !== "live") return;
     let active = true;
 
     const pullLiveDevice = async () => {
       try {
-<<<<<<< HEAD
         const now = Date.now();
 
         // 1. Fetch settings
@@ -185,31 +180,6 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
             : "system") as LogCategory,
           message: l.message || `${l.type} event`,
           severity: (l.type === "needs_refund"
-=======
-        const [deviceResult, slotResult, logResult] = await Promise.all([
-          supabase.from("devices").select("*").order("last_seen", { ascending: false }).limit(1).maybeSingle(),
-          supabase.from("slots").select("slot,occupied,updated_at").order("slot"),
-          supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(50),
-        ]);
-        if (!active) return;
-        if (deviceResult.error || slotResult.error || logResult.error) {
-          setLiveError("Could not read live ESP32 device status");
-          return;
-        }
-
-        const device = deviceResult.data;
-        const now = Date.now();
-        const lastSeenMs = device?.last_seen ? Date.parse(device.last_seen) : 0;
-        const isOnline = Boolean(device && now - lastSeenMs <= 30_000);
-        const mappedLogs: LogEvent[] = (logResult.data ?? []).map((l, idx) => ({
-          id: idx + 1,
-          ts: Date.parse(l.created_at),
-          category: (l.event === "entered" ? "entry" : l.event === "slots" ? "slot" : "system") as LogCategory,
-          message: l.message || `${l.device ?? l.device_id ?? "ESP32"}: ${l.event ?? l.type ?? "update"}`,
-          severity: (l.event === "payment_received" || l.event === "session_expired"
-            ? "success"
-            : l.event === "link_creation_failed"
->>>>>>> origin/main
             ? "error"
             : l.type === "payment_received" || l.type === "exit_opened"
             ? "success"
@@ -220,7 +190,6 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
         }));
 
         setState((prev) => {
-<<<<<<< HEAD
           const next = {
             ...prev,
             now,
@@ -273,19 +242,6 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
               secondsRemaining,
               endsAt: activeSess?.end_time || null,
               reservedUntil: pendingSess?.expires_at ? Date.parse(pendingSess.expires_at) : null,
-=======
-          const next = { ...prev, now, online: isOnline };
-          next.logs = mappedLogs;
-          next.slots = prev.slots.map((slotState, idx) => {
-            const liveSlot = slotResult.data?.find((row) => row.slot === idx + 1);
-            const isOccupied = liveSlot?.occupied ?? false;
-            return {
-              ...slotState,
-              status: isOccupied ? "OCCUPIED" : "FREE",
-              irRaw: isOccupied,
-              lastUpdate: liveSlot?.updated_at ? Date.parse(liveSlot.updated_at) : lastSeenMs || now,
-              sensorOk: Boolean(device),
->>>>>>> origin/main
             };
           });
 
@@ -304,14 +260,15 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
         });
 
         setLiveError(null);
-      } catch {
-        if (active) setLiveError("Could not read ESP32 device status");
+      } catch (err: any) {
+        if (active) setLiveError(err.message || "Could not read ESP32 device status");
       }
     };
 
     void pullLiveDevice();
+
+    // Subscribe to realtime database updates
     const channel = supabase
-<<<<<<< HEAD
       .channel(`parksense-realtime-${crypto.randomUUID()}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, () => {
         void pullLiveDevice();
@@ -331,14 +288,12 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
       .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, () => {
         void pullLiveDevice();
       })
-=======
-      .channel(`esp32-live-${crypto.randomUUID()}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "devices" }, () => void pullLiveDevice())
-      .on("postgres_changes", { event: "*", schema: "public", table: "slots" }, () => void pullLiveDevice())
-      .on("postgres_changes", { event: "*", schema: "public", table: "activity_logs" }, () => void pullLiveDevice())
->>>>>>> origin/main
       .subscribe();
-    const interval = setInterval(() => void pullLiveDevice(), 3000);
+
+    // Re-check online condition every 3 seconds
+    const interval = setInterval(() => {
+      void pullLiveDevice();
+    }, 3000);
 
     return () => {
       active = false;
