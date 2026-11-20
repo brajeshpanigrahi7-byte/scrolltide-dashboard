@@ -328,20 +328,27 @@ describe("Job B Security Hardening", () => {
   });
 
   describe("Requirement 2 & 3: Cryptographically Secure Random Tokens", () => {
-    it("generates 8+ alphanumeric random tokens with zero modulo bias", () => {
-      const code1 = generateCode(8);
-      const code2 = generateCode(8);
-      expect(code1).toHaveLength(8);
-      expect(code2).toHaveLength(8);
+    it("generates 6-character alphanumeric tokens exclusively from '23456789ABCDEFGHJKLMNPQRSTUVWXYZ' (no 0, 1, I, O)", () => {
+      const code1 = generateCode(6);
+      const code2 = generateCode(6);
+      expect(code1).toHaveLength(6);
+      expect(code2).toHaveLength(6);
       expect(code1).not.toBe(code2);
-      expect(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(code1)).toBe(true);
+      expect(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(code1)).toBe(true);
+      expect(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(code2)).toBe(true);
+      // Strictly forbids 0, 1, I, O
+      expect(code1).not.toMatch(/[01IO]/);
+      expect(code2).not.toMatch(/[01IO]/);
     });
 
-    it("supports custom lengths of 8 or more", () => {
+    it("defaults to 6 characters and supports custom lengths", () => {
+      const codeDefault = generateCode();
+      expect(codeDefault).toHaveLength(6);
+      expect(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(codeDefault)).toBe(true);
+
       const code10 = generateCode(10);
       expect(code10).toHaveLength(10);
-      const codeMin = generateCode(4); // clamped to minimum 8
-      expect(codeMin).toHaveLength(8);
+      expect(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{10}$/.test(code10)).toBe(true);
     });
   });
 

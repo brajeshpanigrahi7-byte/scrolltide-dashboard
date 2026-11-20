@@ -139,10 +139,10 @@ export const createAdminTestSession = createServerFn({ method: "POST" })
       process.env.PUBLIC_APP_URL || "https://scrolltide-dashboard.lovable.app"
     ).replace(/\/+$/, "");
 
-    // Generate unique 8-character cryptographically secure token
+    // Generate unique 6-character code (exclusively from 23456789ABCDEFGHJKLMNPQRSTUVWXYZ)
     let code = "";
     for (let i = 0; i < 5; i++) {
-      const candidate = generateCode(8);
+      const candidate = generateCode(6);
       const { data: existing } = await db
         .from("sessions")
         .select("id")
@@ -185,7 +185,10 @@ export const createAdminTestSession = createServerFn({ method: "POST" })
       });
     } catch {}
 
-    const payUrl = `${publicAppUrl}/p/${code}`;
+    let payUrl = `${publicAppUrl}/p/${code}`;
+    if (payUrl.length > 53) {
+      payUrl = `/p/${code}`;
+    }
 
     return {
       session_id: newSession.id,

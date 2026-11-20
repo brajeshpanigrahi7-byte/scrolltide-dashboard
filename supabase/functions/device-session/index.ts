@@ -151,11 +151,13 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existingPending) {
+      let payUrl = `${publicAppUrl}/p/${existingPending.code}`;
+      if (payUrl.length > 53) payUrl = `/p/${existingPending.code}`;
       return jsonResponse(
         {
           session_id: existingPending.id,
           code: existingPending.code,
-          pay_url: `${publicAppUrl}/p/${existingPending.code}`,
+          pay_url: payUrl,
         },
         200,
         corsHeaders,
@@ -176,12 +178,14 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existingPaid) {
+      let payUrl = `${publicAppUrl}/p/${existingPaid.code}`;
+      if (payUrl.length > 53) payUrl = `/p/${existingPaid.code}`;
       return jsonResponse(
         {
           session_id: existingPaid.id,
           code: existingPaid.code,
           status: "paid",
-          pay_url: `${publicAppUrl}/p/${existingPaid.code}`,
+          pay_url: payUrl,
         },
         200,
         corsHeaders,
@@ -227,61 +231,67 @@ Deno.serve(async (req) => {
       .eq("device_id", device)
       .in("status", ["pending", "awaiting_payment"]);
 
-    // 5. Generate unique 6-character code
-    let code = "";
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const candidate = generateSessionCode();
-      const { data: existingCode } = await supabase
-        .from("sessions")
-        .select("id")
-        .eq("code", candidate)
-        .maybeSingle();
+    // 5. Generate unique 6-character code exclusively from "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    // and insert into sessions, retrying up to 5 times on unique constraint collision
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    let newSession: { id: string; code: string } | null = null;
+    let insertErr: any = null;
 
-      if (!existingCode) {
-        code = candidate;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidate = generateSessionCode(6);
+      const { data: inserted, error: err } = await supabase
+        .from("sessions")
+        .insert({
+          device_id: device,
+          slot: slot,
+          status: "pending",
+          code: candidate,
+          expires_at: expiresAt,
+        })
+        .select("id, code")
+        .single();
+
+      if (!err && inserted) {
+        newSession = inserted;
+        break;
+      }
+
+      insertErr = err;
+      const msg = err?.message?.toLowerCase() || "";
+      const isCollision =
+        err?.code === "23505" ||
+        msg.includes("unique") ||
+        msg.includes("duplicate") ||
+        msg.includes("collision");
+
+      if (!isCollision) {
         break;
       }
     }
 
-    if (!code) {
-      return jsonResponse({ error: "Failed to generate unique code" }, 500, corsHeaders);
-    }
-
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-    // 6. Insert new pending session
-    const { data: newSession, error: insertErr } = await supabase
-      .from("sessions")
-      .insert({
-        device_id: device,
-        slot: slot,
-        status: "pending",
-        code: code,
-        expires_at: expiresAt,
-      })
-      .select("id, code")
-      .single();
-
-    if (insertErr || !newSession) {
+    if (!newSession) {
       return jsonResponse(
-        { error: insertErr?.message || "Failed to create session" },
+        { error: insertErr?.message || "Failed to create session after 5 attempts" },
         500,
         corsHeaders,
       );
     }
 
-    // 7. Log session created to activity_logs
+    // 6. Log session created to activity_logs
     try {
       await supabase.from("activity_logs").insert({
         device_id: device,
         type: "session_created",
         slot: slot,
         session_id: newSession.id,
-        message: `Session ${code} created for slot ${slot}`,
+        message: `Session ${newSession.code} created for slot ${slot}`,
       });
     } catch {}
 
-    const payUrl = `${publicAppUrl}/p/${code}`;
+    let payUrl = `${publicAppUrl}/p/${newSession.code}`;
+    if (payUrl.length > 53) {
+      payUrl = `/p/${newSession.code}`;
+    }
 
     // Flat compact response: exactly {"session_id":"...","code":"...","pay_url":"..."}
     return jsonResponse(

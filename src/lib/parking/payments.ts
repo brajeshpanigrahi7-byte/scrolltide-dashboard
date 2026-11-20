@@ -51,14 +51,20 @@ export function todayCollected(
     .reduce((sum, s) => sum + s.amount_inr, 0);
 }
 
-/** Generate a cryptographically secure random token (8+ alphanumeric characters, no 0/1/O/I ambiguity). */
-export function generateCode(length = 8): string {
-  const effectiveLength = Math.max(8, length);
-  const CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 chars, no 0/1/I/O
+export const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 characters: strictly forbids 0, 1, I, and O
+
+/**
+ * Generate a cryptographically secure random session code.
+ * Picks random characters exclusively from "23456789ABCDEFGHJKLMNPQRSTUVWXYZ" (32 characters, no 0, 1, I, or O).
+ * Default length is 6 to satisfy the database check constraint:
+ * CHECK ((code ~ '^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$'::text))
+ */
+export function generateCode(length = 6): string {
+  const CHARS = CODE_ALPHABET;
   let code = "";
-  const bytes = new Uint8Array(effectiveLength);
+  const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
-  for (let i = 0; i < effectiveLength; i++) {
+  for (let i = 0; i < length; i++) {
     code += CHARS[bytes[i]! % CHARS.length];
   }
   return code;

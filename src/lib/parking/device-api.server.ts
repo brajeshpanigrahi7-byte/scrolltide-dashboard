@@ -208,11 +208,13 @@ export async function deviceSession(request: Request): Promise<Response> {
       .maybeSingle();
 
     if (existingPending) {
+      let payUrl = `${publicAppUrl}/p/${existingPending.code}`;
+      if (payUrl.length > 53) payUrl = `/p/${existingPending.code}`;
       return flatJson(
         {
           session_id: existingPending.id,
           code: existingPending.code,
-          pay_url: `${publicAppUrl}/p/${existingPending.code}`,
+          pay_url: payUrl,
         },
         200,
       );
@@ -232,12 +234,14 @@ export async function deviceSession(request: Request): Promise<Response> {
       .maybeSingle();
 
     if (existingPaid) {
+      let payUrl = `${publicAppUrl}/p/${existingPaid.code}`;
+      if (payUrl.length > 53) payUrl = `/p/${existingPaid.code}`;
       return flatJson(
         {
           session_id: existingPaid.id,
           code: existingPaid.code,
           status: "paid",
-          pay_url: `${publicAppUrl}/p/${existingPaid.code}`,
+          pay_url: payUrl,
         },
         200,
       );
@@ -297,58 +301,70 @@ export async function deviceSession(request: Request): Promise<Response> {
       .eq("device_id", device)
       .in("status", ["pending", "awaiting_payment"]);
 
-    // 5. Generate unique 8-character cryptographically secure token
-    let code = "";
-    for (let i = 0; i < 5; i++) {
-      const candidate = generateCode(8);
-      const { data: existing } = await db
-        .from("sessions")
-        .select("id")
-        .eq("code", candidate)
-        .maybeSingle();
+    // 5. Generate unique 6-character code exclusively from "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    // and insert into sessions, retrying up to 5 times on unique constraint collision
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+    let newSession: { id: string; code: string } | null = null;
+    let lastError: any = null;
 
-      if (!existing) {
-        code = candidate;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const candidateCode = generateCode(6);
+
+      const { data: inserted, error: insertErr } = await db
+        .from("sessions")
+        .insert({
+          device_id: device,
+          slot: slot,
+          status: "pending",
+          code: candidateCode,
+          expires_at: expiresAt,
+        })
+        .select("id, code")
+        .single();
+
+      if (!insertErr && inserted) {
+        newSession = inserted;
+        break;
+      }
+
+      lastError = insertErr;
+      const msg = insertErr?.message?.toLowerCase() || "";
+      const isCollision =
+        insertErr?.code === "23505" ||
+        msg.includes("unique") ||
+        msg.includes("duplicate") ||
+        msg.includes("collision");
+
+      if (!isCollision) {
+        console.warn(`[device-session] Insert attempt ${attempt + 1} failed:`, insertErr?.message);
         break;
       }
     }
 
-    if (!code) return flatJson({ error: "Could not generate code" }, 500);
-
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-
-    // 6. Create new session with pending status
-    const { data: newSession, error: createErr } = await db
-      .from("sessions")
-      .insert({
-        device_id: device,
-        slot: slot,
-        status: "pending",
-        code: code,
-        expires_at: expiresAt,
-      })
-      .select("id, code")
-      .single();
-
-    if (createErr || !newSession) {
-      return flatJson({ error: createErr?.message || "Failed to create session" }, 500);
+    if (!newSession) {
+      return flatJson({ error: lastError?.message || "Failed to create session after 5 attempts" }, 500);
     }
 
-    // 7. Log session created
+    // 6. Log session created
     try {
       await db.from("activity_logs").insert({
         device_id: device,
         type: "session_created",
         slot: slot,
         session_id: newSession.id,
-        message: `Session ${code} created for slot ${slot}`,
+        message: `Session ${newSession.code} created for slot ${slot}`,
       });
     } catch (e) {
       console.warn("Could not write to activity_logs:", e);
     }
 
-    const payUrl = `${publicAppUrl}/p/${code}`;
+    // Ensure pay_url is 53 characters or fewer
+    let payUrl = `${publicAppUrl}/p/${newSession.code}`;
+    if (payUrl.length > 53) {
+      payUrl = `/p/${newSession.code}`;
+    }
 
+    // Exact flat JSON response format: {"session_id","code","pay_url"}
     return flatJson(
       {
         session_id: newSession.id,
