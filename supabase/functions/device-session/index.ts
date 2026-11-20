@@ -151,8 +151,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existingPending) {
-      let payUrl = `${publicAppUrl}/p/${existingPending.code}`;
-      if (payUrl.length > 53) payUrl = `/p/${existingPending.code}`;
+      let payUrl = `${publicAppUrl}/pay/${existingPending.code}`;
+      if (payUrl.length > 53) payUrl = `/pay/${existingPending.code}`;
       return jsonResponse(
         {
           session_id: existingPending.id,
@@ -178,8 +178,8 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existingPaid) {
-      let payUrl = `${publicAppUrl}/p/${existingPaid.code}`;
-      if (payUrl.length > 53) payUrl = `/p/${existingPaid.code}`;
+      let payUrl = `${publicAppUrl}/pay/${existingPaid.code}`;
+      if (payUrl.length > 53) payUrl = `/pay/${existingPaid.code}`;
       return jsonResponse(
         {
           session_id: existingPaid.id,
@@ -288,9 +288,9 @@ Deno.serve(async (req) => {
       });
     } catch {}
 
-    let payUrl = `${publicAppUrl}/p/${newSession.code}`;
+    let payUrl = `${publicAppUrl}/pay/${newSession.code}`;
     if (payUrl.length > 53) {
-      payUrl = `/p/${newSession.code}`;
+      payUrl = `/pay/${newSession.code}`;
     }
 
     // Flat compact response: exactly {"session_id":"...","code":"...","pay_url":"..."}

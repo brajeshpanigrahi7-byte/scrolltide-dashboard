@@ -41,7 +41,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (r) => r.location.pathname });
   useEffect(() => setMobileOpen(false), [path]);
 
-  if (path.startsWith("/p/") || path === "/login") {
+  if (path.startsWith("/p/") || path.startsWith("/pay/") || path === "/login") {
     return <div className="min-h-screen bg-background text-foreground">{children}</div>;
   }
 

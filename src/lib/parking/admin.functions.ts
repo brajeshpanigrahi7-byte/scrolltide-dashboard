@@ -185,9 +185,9 @@ export const createAdminTestSession = createServerFn({ method: "POST" })
       });
     } catch {}
 
-    let payUrl = `${publicAppUrl}/p/${code}`;
+    let payUrl = `${publicAppUrl}/pay/${code}`;
     if (payUrl.length > 53) {
-      payUrl = `/p/${code}`;
+      payUrl = `/pay/${code}`;
     }
 
     return {

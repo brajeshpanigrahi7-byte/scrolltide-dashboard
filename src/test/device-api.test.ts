@@ -9,7 +9,12 @@ import {
   setTestDbClient,
   resetDbClient,
 } from "@/lib/parking/device-api.server";
-import { sessionPublic, createOrder, verifyPayment } from "@/lib/parking/driver-api.server";
+import {
+  sessionPublic,
+  createOrder,
+  verifyPayment,
+  resetDriverDb,
+} from "@/lib/parking/driver-api.server";
 import { createHmac } from "node:crypto";
 
 const mockDb = {
@@ -53,6 +58,12 @@ vi.mock("@/integrations/supabase/client.server", () => ({
         },
         eq: (col: string, val: any) => {
           filtered = filtered.filter((r: any) => r[col] === val);
+          return builder;
+        },
+        ilike: (col: string, val: any) => {
+          filtered = filtered.filter(
+            (r: any) => String(r[col] || "").toLowerCase() === String(val || "").toLowerCase(),
+          );
           return builder;
         },
         in: (col: string, vals: any[]) => {
@@ -128,6 +139,7 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 
 beforeEach(() => {
   resetDbClient();
+  resetDriverDb();
   vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
   vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key-123");
   vi.stubEnv("DEVICE_API_KEY", "test-device-secret-123");
@@ -197,7 +209,7 @@ describe("ESP32 Device API Endpoints", () => {
     expect(data.session_id).toBeDefined();
     expect(data.code).toHaveLength(6);
     expect(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/.test(data.code)).toBe(true);
-    expect(data.pay_url).toBe(`https://scrolltide-dashboard.lovable.app/p/${data.code}`);
+    expect(data.pay_url).toBe(`https://scrolltide-dashboard.lovable.app/pay/${data.code}`);
     expect(data.pay_url.length).toBeLessThanOrEqual(53);
 
     // Verify exactly the flat compact keys allowed
@@ -273,7 +285,7 @@ describe("ESP32 Device API Endpoints", () => {
     const data = await res.json();
     expect(data.session_id).toBe("sess-curr-pending");
     expect(data.code).toBe("CURR01");
-    expect(data.pay_url).toBe("https://scrolltide-dashboard.lovable.app/p/CURR01");
+    expect(data.pay_url).toBe("https://scrolltide-dashboard.lovable.app/pay/CURR01");
   });
 
   it("POST /device-session does NOT block when an active session's time is already expired", async () => {
@@ -568,5 +580,35 @@ describe("Driver Payment Page API", () => {
     expect(data.slot).toBe(2);
     expect(data.status).toBe("pending");
     expect(Array.isArray(data.price_options)).toBe(true);
+    expect(Array.isArray(data.duration_options)).toBe(true);
+    expect(data.price).toBeDefined();
+  });
+
+  it("sessionPublic looks up code with case-insensitivity and whitespace trimming without requiring login", async () => {
+    mockDb.sessions.push({
+      id: "sess-uuid-7cfw34",
+      code: "7CFW34",
+      slot: 3,
+      status: "pending",
+      duration_min: 0,
+      amount_paise: 0,
+      created_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 240000).toISOString(),
+    });
+
+    // Test with lowercase and leading/trailing whitespace, no auth header
+    const req = new Request("https://example.com/api/public/session-public?code=%207cfw34%20");
+    const res = await sessionPublic(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.code).toBe("7CFW34");
+    expect(data.slot).toBe(3);
+    expect(data.status).toBe("pending");
+    expect(data.duration_options).toEqual([30, 60, 120, 180, 240]);
+    expect(data.price).toBe(20);
+    // Sensitive fields not exposed
+    expect(data.user_id).toBeUndefined();
+    expect(data.driver_email).toBeUndefined();
+    expect(data.driver_phone).toBeUndefined();
   });
 });

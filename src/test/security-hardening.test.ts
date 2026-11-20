@@ -43,6 +43,12 @@ vi.mock("@/integrations/supabase/client.server", () => ({
           filtered = filtered.filter((r: any) => r[col] === val);
           return builder;
         },
+        ilike: (col: string, val: any) => {
+          filtered = filtered.filter(
+            (r: any) => String(r[col] || "").toLowerCase() === String(val || "").toLowerCase(),
+          );
+          return builder;
+        },
         is: (col: string, val: any) => {
           filtered = filtered.filter((r: any) => (val === null ? r[col] == null : r[col] === val));
           return builder;

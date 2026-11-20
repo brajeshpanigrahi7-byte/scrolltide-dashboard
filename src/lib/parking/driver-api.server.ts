@@ -20,6 +20,61 @@ function computeAmountPaise(durationMin: number, pricePerHour: number): number {
 // In-memory sliding rate limiter per IP
 const ipHits = new Map<string, { count: number; resetAt: number }>();
 
+let _adminDb: any = null;
+
+export function resetDriverDb(): void {
+  _adminDb = null;
+}
+
+export function setTestDriverDb(client: any): void {
+  _adminDb = client;
+}
+
+export async function getAdminDb(): Promise<any> {
+  if (_adminDb) return _adminDb;
+
+  // 1. Try supabaseAdmin first (uses mock in unit tests and official admin client in production)
+  try {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    if (supabaseAdmin && typeof (supabaseAdmin as any).from === "function") {
+      _adminDb = supabaseAdmin;
+      return _adminDb;
+    }
+  } catch {}
+
+  const url =
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    "https://c--ed7c000c-2305-4d18-af24-04a5934fd53f-prod.lovable.cloud";
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (serviceKey) {
+    try {
+      const { createClient } = await import("@supabase/supabase-js");
+      _adminDb = createClient(url, serviceKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      });
+      return _adminDb;
+    } catch (e) {
+      console.warn("[driver-api] createClient with serviceKey failed:", e);
+    }
+  }
+
+  const pubKey =
+    process.env.SUPABASE_PUBLISHABLE_KEY ||
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  if (pubKey) {
+    const { createClient } = await import("@supabase/supabase-js");
+    _adminDb = createClient(url, pubKey);
+    return _adminDb;
+  }
+
+  throw new Error("Supabase client could not be initialized");
+}
+
 export function checkRateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
   const now = Date.now();
   const entry = ipHits.get(ip);
@@ -65,9 +120,9 @@ export async function getAuthenticatedUser(
   }
 
   try {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    if (supabaseAdmin && typeof (supabaseAdmin as any).auth?.getUser === "function") {
-      const { data, error } = await supabaseAdmin.auth.getUser(token);
+    const db = await getAdminDb();
+    if (db && typeof (db as any).auth?.getUser === "function") {
+      const { data, error } = await db.auth.getUser(token);
       if (!error && data?.user?.id) {
         return { id: data.user.id, email: data.user.email };
       }
@@ -92,8 +147,8 @@ export async function getAuthenticatedUser(
 export async function isUserAdmin(userId: string): Promise<boolean> {
   if (!userId) return false;
   try {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: roleRow } = await supabaseAdmin
+    const db = await getAdminDb();
+    const { data: roleRow } = await db
       .from("user_roles")
       .select("role")
       .eq("user_id", userId)
@@ -112,32 +167,99 @@ export async function sessionPublic(request: Request): Promise<Response> {
   }
 
   const url = new URL(request.url);
-  const code = url.searchParams.get("code")?.trim().toUpperCase();
+  const rawCode = url.searchParams.get("code") || "";
+  const code = rawCode.trim();
 
   if (!code) return json({ error: "Missing code parameter" }, 400);
 
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const db = await getAdminDb();
 
-  const { data: session, error } = await supabaseAdmin
-    .from("sessions")
-    .select(
-      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
-    )
-    .eq("code", code)
-    .maybeSingle();
+  // Look up by code: case-insensitive (ILIKE) and trimmed
+  let session: any = null;
 
-  if (error || !session) return json({ error: "Session not found" }, 404);
+  // 1. Try ILIKE in sessions table
+  try {
+    const res = await db
+      .from("sessions")
+      .select(
+        "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
+      )
+      .ilike("code", code)
+      .maybeSingle();
+    session = res.data;
+  } catch {}
 
-  const { data: settings } = await supabaseAdmin
-    .from("settings")
-    .select("price_per_hour, duration_options")
-    .eq("id", 1)
-    .maybeSingle();
+  // 2. Fallback to exact uppercase in sessions table
+  if (!session) {
+    try {
+      const res = await db
+        .from("sessions")
+        .select(
+          "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
+        )
+        .eq("code", code.toUpperCase())
+        .maybeSingle();
+      if (res.data) session = res.data;
+    } catch {}
+  }
 
-  const pricePerHour = Number(settings?.price_per_hour || 20);
-  const durationOptions: number[] = Array.isArray(settings?.duration_options)
-    ? (settings?.duration_options as number[])
-    : [30, 60, 120, 180, 240];
+  // 3. Fallback to parking_sessions table if sessions had no match
+  if (!session) {
+    try {
+      const res = await db
+        .from("parking_sessions")
+        .select("*")
+        .ilike("code", code)
+        .maybeSingle();
+      if (res.data) {
+        session = {
+          ...res.data,
+          amount_paise:
+            res.data.amount_paise ?? (res.data.amount_inr ? res.data.amount_inr * 100 : 0),
+        };
+      }
+    } catch {}
+  }
+
+  if (!session) {
+    try {
+      const res = await db
+        .from("parking_sessions")
+        .select("*")
+        .eq("code", code.toUpperCase())
+        .maybeSingle();
+      if (res.data) {
+        session = {
+          ...res.data,
+          amount_paise:
+            res.data.amount_paise ?? (res.data.amount_inr ? res.data.amount_inr * 100 : 0),
+        };
+      }
+    } catch {}
+  }
+
+  if (!session) return json({ error: "Session not found" }, 404);
+
+  // Fetch settings for pricing and duration options
+  let pricePerHour = 20;
+  let durationOptions: number[] = [30, 60, 120, 180, 240];
+
+  try {
+    const { data: settings } = await db
+      .from("settings")
+      .select("price_per_hour, duration_options")
+      .eq("id", 1)
+      .maybeSingle();
+
+    if (settings?.price_per_hour) {
+      pricePerHour = Number(settings.price_per_hour);
+    }
+    if (Array.isArray(settings?.duration_options) && settings.duration_options.length > 0) {
+      durationOptions = settings.duration_options as number[];
+    }
+  } catch (e) {
+    console.warn("Could not fetch settings, using defaults:", e);
+  }
 
   const priceOptions = durationOptions.map((d) => ({
     duration_min: d,
@@ -145,14 +267,18 @@ export async function sessionPublic(request: Request): Promise<Response> {
   }));
 
   const now = Date.now();
-  let status = session.status;
+  let status = session.status || "pending";
 
-  const expiresAtMs = new Date(session.expires_at).getTime();
+  const expiresAtMs = session.expires_at
+    ? new Date(session.expires_at).getTime()
+    : now + 600_000;
   const expiresInSeconds = Math.max(0, Math.floor((expiresAtMs - now) / 1000));
 
-  if (status === "pending" && expiresInSeconds === 0) {
+  if (status === "pending" && session.expires_at && expiresInSeconds === 0) {
     status = "expired";
-    await supabaseAdmin.from("sessions").update({ status: "expired" }).eq("id", session.id);
+    try {
+      await db.from("sessions").update({ status: "expired" }).eq("id", session.id);
+    } catch {}
   }
 
   let secondsRemaining = 0;
@@ -161,31 +287,36 @@ export async function sessionPublic(request: Request): Promise<Response> {
     secondsRemaining = Math.max(0, Math.floor((endMs - now) / 1000));
   }
 
-  const amountInr = (session.amount_paise || 0) / 100;
+  const amountInr = session.amount_paise
+    ? session.amount_paise / 100
+    : session.amount_inr || 0;
 
-  // Determine whether the caller is the session owner or an admin.
-  // Unauthenticated callers (drivers scanning QR) can still access
-  // non-sensitive session data, but vehicle_no is stripped for privacy.
-  const authUser = await getAuthenticatedUser(request);
-  const isOwner = authUser?.id != null && session.user_id === authUser.id;
-  const isAdmin = authUser?.id != null && !isOwner ? await isUserAdmin(authUser.id) : false;
-  const canSeePrivateFields = isOwner || isAdmin;
+  // Determine whether caller is authenticated owner or admin
+  let canSeePrivateFields = false;
+  try {
+    const authUser = await getAuthenticatedUser(request);
+    if (authUser?.id && session.user_id === authUser.id) {
+      canSeePrivateFields = true;
+    } else if (authUser?.id) {
+      canSeePrivateFields = await isUserAdmin(authUser.id);
+    }
+  } catch {}
 
-  // Only return non-sensitive fields for this specific session.
-  // contact_email and contact_phone are NEVER returned in public responses.
-  // vehicle_no is only returned to authenticated session owners or admins.
+  // Safe fields returned: code, slot, status, duration options, and price. No login required.
   return json({
     session_id: session.id,
     code: session.code,
     slot: session.slot,
     status,
+    duration_options: durationOptions,
     duration_min: session.duration_min || 0,
-    seconds_remaining: secondsRemaining,
+    price: pricePerHour,
+    price_per_hour: pricePerHour,
+    price_options: priceOptions,
     amount: amountInr,
+    seconds_remaining: secondsRemaining,
     expires_in: expiresInSeconds,
     vehicle_no: canSeePrivateFields ? session.vehicle_no || null : undefined,
-    price_options: priceOptions,
-    price_per_hour: pricePerHour,
   });
 }
 
@@ -227,9 +358,9 @@ export async function createOrder(request: Request): Promise<Response> {
     return json({ error: "Missing required fields: code and duration_min" }, 400);
   }
 
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const db = await getAdminDb();
 
-  const { data: settings } = await supabaseAdmin
+  const { data: settings } = await db
     .from("settings")
     .select("price_per_hour, duration_options")
     .eq("id", 1)
@@ -244,7 +375,7 @@ export async function createOrder(request: Request): Promise<Response> {
     return json({ error: `Duration must be one of: ${durationOptions.join(", ")}` }, 400);
   }
 
-  let query = supabaseAdmin.from("sessions").select("*").eq("code", code);
+  let query = db.from("sessions").select("*").eq("code", code);
   if (sessionId) {
     query = query.eq("id", sessionId);
   }
@@ -270,7 +401,7 @@ export async function createOrder(request: Request): Promise<Response> {
     }
     const expiresAt = new Date(session.expires_at).getTime();
     if (now > expiresAt) {
-      await supabaseAdmin.from("sessions").update({ status: "expired" }).eq("id", session.id);
+      await db.from("sessions").update({ status: "expired" }).eq("id", session.id);
       return json({ error: "Session has expired" }, 400);
     }
 
@@ -280,7 +411,7 @@ export async function createOrder(request: Request): Promise<Response> {
     if (body.vehicle_no) sessionUpdates.vehicle_no = body.vehicle_no.trim();
     if (body.contact_email) sessionUpdates.contact_email = body.contact_email.trim();
     if (body.contact_phone) sessionUpdates.contact_phone = body.contact_phone.trim();
-    await supabaseAdmin.from("sessions").update(sessionUpdates).eq("id", session.id);
+    await db.from("sessions").update(sessionUpdates).eq("id", session.id);
   } else if (kind === "extend") {
     if (session.status !== "active") {
       return json({ error: "Only active sessions can be extended" }, 400);
@@ -325,7 +456,7 @@ export async function createOrder(request: Request): Promise<Response> {
     return json({ error: orderData.error?.description || "Failed to create Razorpay order" }, 502);
   }
 
-  await supabaseAdmin.from("payments").insert({
+  await db.from("payments").insert({
     session_id: session.id,
     user_id: authUser.id,
     razorpay_order_id: orderData.id,
@@ -389,9 +520,9 @@ export async function verifyPayment(request: Request): Promise<Response> {
     return json({ error: "Invalid signature" }, 400);
   }
 
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const db = await getAdminDb();
 
-  const { data: payment } = await supabaseAdmin
+  const { data: payment } = await db
     .from("payments")
     .select("amount_paise, session_id, status")
     .eq("razorpay_order_id", orderId)
@@ -443,9 +574,9 @@ export async function leaveNow(request: Request): Promise<Response> {
     return json({ error: "Too many exit requests. Please slow down." }, 429);
   }
 
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const db = await getAdminDb();
 
-  let query = supabaseAdmin.from("sessions").select("id, slot, status, user_id, code");
+  let query = db.from("sessions").select("id, slot, status, user_id, code");
   if (code) query = query.eq("code", code);
   if (sessionId) query = query.eq("id", sessionId);
 
@@ -468,7 +599,7 @@ export async function leaveNow(request: Request): Promise<Response> {
   }
 
   const nowIso = new Date().toISOString();
-  const { data: updated, error: updateErr } = await supabaseAdmin
+  const { data: updated, error: updateErr } = await db
     .from("sessions")
     .update({ end_time: nowIso })
     .eq("id", session.id)
@@ -481,7 +612,7 @@ export async function leaveNow(request: Request): Promise<Response> {
   }
 
   try {
-    await supabaseAdmin.from("activity_logs").insert({
+    await db.from("activity_logs").insert({
       type: "leave_now",
       slot: updated.slot,
       session_id: updated.id,

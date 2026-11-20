@@ -70,9 +70,10 @@ export function generateCode(length = 6): string {
   return code;
 }
 
-export const PAY_URL_BASE = "https://scrolltide-dashboard.lovable.app/p/";
+export const PAY_URL_BASE = "https://scrolltide-dashboard.lovable.app/pay/";
 
-/** Build a pay URL. */
+/** Build a pay URL (53 characters or fewer). */
 export function payUrl(code: string): string {
-  return `${PAY_URL_BASE}${code}`;
+  const url = `${PAY_URL_BASE}${code}`;
+  return url.length <= 53 ? url : `/pay/${code}`;
 }

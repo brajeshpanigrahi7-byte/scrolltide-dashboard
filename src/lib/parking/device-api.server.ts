@@ -208,8 +208,8 @@ export async function deviceSession(request: Request): Promise<Response> {
       .maybeSingle();
 
     if (existingPending) {
-      let payUrl = `${publicAppUrl}/p/${existingPending.code}`;
-      if (payUrl.length > 53) payUrl = `/p/${existingPending.code}`;
+      let payUrl = `${publicAppUrl}/pay/${existingPending.code}`;
+      if (payUrl.length > 53) payUrl = `/pay/${existingPending.code}`;
       return flatJson(
         {
           session_id: existingPending.id,
@@ -234,8 +234,8 @@ export async function deviceSession(request: Request): Promise<Response> {
       .maybeSingle();
 
     if (existingPaid) {
-      let payUrl = `${publicAppUrl}/p/${existingPaid.code}`;
-      if (payUrl.length > 53) payUrl = `/p/${existingPaid.code}`;
+      let payUrl = `${publicAppUrl}/pay/${existingPaid.code}`;
+      if (payUrl.length > 53) payUrl = `/pay/${existingPaid.code}`;
       return flatJson(
         {
           session_id: existingPaid.id,
@@ -358,10 +358,10 @@ export async function deviceSession(request: Request): Promise<Response> {
       console.warn("Could not write to activity_logs:", e);
     }
 
-    // Ensure pay_url is 53 characters or fewer
-    let payUrl = `${publicAppUrl}/p/${newSession.code}`;
+    // Ensure pay_url is 53 characters or fewer and matches /pay/<code>
+    let payUrl = `${publicAppUrl}/pay/${newSession.code}`;
     if (payUrl.length > 53) {
-      payUrl = `/p/${newSession.code}`;
+      payUrl = `/pay/${newSession.code}`;
     }
 
     // Exact flat JSON response format: {"session_id","code","pay_url"}

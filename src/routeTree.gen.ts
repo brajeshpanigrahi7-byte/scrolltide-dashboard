@@ -20,6 +20,8 @@ import { Route as SensorsRouteImport } from './routes/sensors'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as WorkflowRouteImport } from './routes/workflow'
 import { Route as PCodeRouteImport } from './routes/p/$code'
+import { Route as PayIndexRouteImport } from './routes/pay/index'
+import { Route as PayCodeRouteImport } from './routes/pay/$code'
 import { Route as ApiPublicCleanStaleRouteImport } from './routes/api/public/clean-stale'
 import { Route as ApiPublicCreateOrderRouteImport } from './routes/api/public/create-order'
 import { Route as ApiPublicCreateSessionRouteImport } from './routes/api/public/create-session'
@@ -90,6 +92,16 @@ const WorkflowRoute = WorkflowRouteImport.update({
 const PCodeRoute = PCodeRouteImport.update({
   id: '/p/$code',
   path: '/p/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PayIndexRoute = PayIndexRouteImport.update({
+  id: '/pay/',
+  path: '/pay/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PayCodeRoute = PayCodeRouteImport.update({
+  id: '/pay/$code',
+  path: '/pay/$code',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicCleanStaleRoute = ApiPublicCleanStaleRouteImport.update({
@@ -186,6 +198,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
   '/p/$code': typeof PCodeRoute
+  '/pay/$code': typeof PayCodeRoute
+  '/pay/': typeof PayIndexRoute
   '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
@@ -215,6 +229,8 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
   '/p/$code': typeof PCodeRoute
+  '/pay/$code': typeof PayCodeRoute
+  '/pay': typeof PayIndexRoute
   '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
@@ -245,6 +261,8 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
   '/p/$code': typeof PCodeRoute
+  '/pay/$code': typeof PayCodeRoute
+  '/pay/': typeof PayIndexRoute
   '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
@@ -276,6 +294,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/workflow'
     | '/p/$code'
+    | '/pay/$code'
+    | '/pay/'
     | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
@@ -305,6 +325,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/workflow'
     | '/p/$code'
+    | '/pay/$code'
+    | '/pay'
     | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
@@ -334,6 +356,8 @@ export interface FileRouteTypes {
     | '/settings'
     | '/workflow'
     | '/p/$code'
+    | '/pay/$code'
+    | '/pay/'
     | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
@@ -364,6 +388,8 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   WorkflowRoute: typeof WorkflowRoute
   PCodeRoute: typeof PCodeRoute
+  PayCodeRoute: typeof PayCodeRoute
+  PayIndexRoute: typeof PayIndexRoute
   ApiPublicCleanStaleRoute: typeof ApiPublicCleanStaleRoute
   ApiPublicCreateOrderRoute: typeof ApiPublicCreateOrderRoute
   ApiPublicCreateSessionRoute: typeof ApiPublicCreateSessionRoute
@@ -459,6 +485,20 @@ declare module '@tanstack/react-router' {
       path: '/p/$code'
       fullPath: '/p/$code'
       preLoaderRoute: typeof PCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pay/': {
+      id: '/pay/'
+      path: '/pay'
+      fullPath: '/pay/'
+      preLoaderRoute: typeof PayIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pay/$code': {
+      id: '/pay/$code'
+      path: '/pay/$code'
+      fullPath: '/pay/$code'
+      preLoaderRoute: typeof PayCodeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/clean-stale': {
@@ -588,6 +628,8 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   WorkflowRoute: WorkflowRoute,
   PCodeRoute: PCodeRoute,
+  PayCodeRoute: PayCodeRoute,
+  PayIndexRoute: PayIndexRoute,
   ApiPublicCleanStaleRoute: ApiPublicCleanStaleRoute,
   ApiPublicCreateOrderRoute: ApiPublicCreateOrderRoute,
   ApiPublicCreateSessionRoute: ApiPublicCreateSessionRoute,
