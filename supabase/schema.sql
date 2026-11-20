@@ -26,6 +26,7 @@ ON CONFLICT (slot) DO NOTHING;
 -- 3. Sessions table
 CREATE TABLE IF NOT EXISTS public.sessions (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
   code text UNIQUE NOT NULL,
   device_id text,
   slot int NOT NULL CHECK (slot BETWEEN 1 AND 5),
@@ -48,10 +49,27 @@ CREATE TABLE IF NOT EXISTS public.sessions (
 CREATE INDEX IF NOT EXISTS sessions_status_idx ON public.sessions (status);
 CREATE INDEX IF NOT EXISTS sessions_code_idx ON public.sessions (code);
 CREATE INDEX IF NOT EXISTS sessions_end_time_idx ON public.sessions (end_time);
+CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON public.sessions (user_id);
+
+-- 3b. Parking Sessions table (legacy & compatibility support)
+CREATE TABLE IF NOT EXISTS public.parking_sessions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  slot int NOT NULL CHECK (slot BETWEEN 1 AND 5),
+  amount_inr int NOT NULL CHECK (amount_inr BETWEEN 20 AND 200 AND amount_inr % 20 = 0),
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','paid','used','expired')),
+  payment_link_id text UNIQUE,
+  short_url text,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  paid_at timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS parking_sessions_user_id_idx ON public.parking_sessions (user_id);
 
 -- 4. Payments table
 CREATE TABLE IF NOT EXISTS public.payments (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
   session_id uuid REFERENCES public.sessions(id) ON DELETE SET NULL,
   razorpay_order_id text UNIQUE NOT NULL,
   razorpay_payment_id text UNIQUE,
@@ -145,6 +163,7 @@ GRANT EXECUTE ON FUNCTION public.has_role(uuid, text) TO authenticated, anon;
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.slots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.parking_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.device_telemetry ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
@@ -155,21 +174,62 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 -- Service role full access
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
--- Revoke write privileges on user_roles
+-- Revoke write privileges on sensitive operational tables from unauthenticated/anon callers
 REVOKE INSERT, UPDATE, DELETE ON public.user_roles FROM authenticated, anon;
+REVOKE INSERT, UPDATE, DELETE ON public.parking_sessions FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.sessions FROM anon;
+REVOKE INSERT, UPDATE, DELETE ON public.payments FROM anon;
 
--- Authenticated admins can SELECT all tables
+-- Row Level Security policies for sessions (authenticated users read/modify own records, admins manage all)
+DROP POLICY IF EXISTS admin_select_sessions ON public.sessions;
+DROP POLICY IF EXISTS user_select_sessions ON public.sessions;
+CREATE POLICY user_select_sessions ON public.sessions FOR SELECT TO authenticated
+  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS user_update_sessions ON public.sessions;
+CREATE POLICY user_update_sessions ON public.sessions FOR UPDATE TO authenticated
+  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS user_delete_sessions ON public.sessions;
+CREATE POLICY user_delete_sessions ON public.sessions FOR DELETE TO authenticated
+  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS user_insert_sessions ON public.sessions;
+CREATE POLICY user_insert_sessions ON public.sessions FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+-- Row Level Security policies for parking_sessions
+DROP POLICY IF EXISTS operators_read_sessions ON public.parking_sessions;
+DROP POLICY IF EXISTS user_select_parking_sessions ON public.parking_sessions;
+CREATE POLICY user_select_parking_sessions ON public.parking_sessions FOR SELECT TO authenticated
+  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS user_update_parking_sessions ON public.parking_sessions;
+CREATE POLICY user_update_parking_sessions ON public.parking_sessions FOR UPDATE TO authenticated
+  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS user_delete_parking_sessions ON public.parking_sessions;
+CREATE POLICY user_delete_parking_sessions ON public.parking_sessions FOR DELETE TO authenticated
+  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS user_insert_parking_sessions ON public.parking_sessions;
+CREATE POLICY user_insert_parking_sessions ON public.parking_sessions FOR INSERT TO authenticated
+  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+-- Row Level Security policies for payments
+DROP POLICY IF EXISTS admin_select_payments ON public.payments;
+DROP POLICY IF EXISTS user_select_payments ON public.payments;
+CREATE POLICY user_select_payments ON public.payments FOR SELECT TO authenticated
+  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+
+-- Authenticated admins can SELECT operational tables
 DROP POLICY IF EXISTS admin_select_devices ON public.devices;
 CREATE POLICY admin_select_devices ON public.devices FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
 
 DROP POLICY IF EXISTS admin_select_slots ON public.slots;
 CREATE POLICY admin_select_slots ON public.slots FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
-DROP POLICY IF EXISTS admin_select_sessions ON public.sessions;
-CREATE POLICY admin_select_sessions ON public.sessions FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
-
-DROP POLICY IF EXISTS admin_select_payments ON public.payments;
-CREATE POLICY admin_select_payments ON public.payments FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
 
 DROP POLICY IF EXISTS admin_select_telemetry ON public.device_telemetry;
 CREATE POLICY admin_select_telemetry ON public.device_telemetry FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));

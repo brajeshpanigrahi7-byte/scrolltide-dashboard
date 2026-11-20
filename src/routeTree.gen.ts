@@ -33,6 +33,7 @@ import { Route as ApiPublicLeaveSessionRouteImport } from './routes/api/public/l
 import { Route as ApiPublicRazorpayWebhookRouteImport } from './routes/api/public/razorpay-webhook'
 import { Route as ApiPublicSessionPublicRouteImport } from './routes/api/public/session-public'
 import { Route as ApiPublicSessionStatusRouteImport } from './routes/api/public/session-status'
+import { Route as ApiPublicStripeWebhookRouteImport } from './routes/api/public/stripe-webhook'
 import { Route as ApiPublicVerifyPaymentRouteImport } from './routes/api/public/verify-payment'
 
 const IndexRoute = IndexRouteImport.update({
@@ -156,6 +157,11 @@ const ApiPublicSessionStatusRoute = ApiPublicSessionStatusRouteImport.update({
   path: '/api/public/session-status',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicStripeWebhookRoute = ApiPublicStripeWebhookRouteImport.update({
+  id: '/api/public/stripe-webhook',
+  path: '/api/public/stripe-webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiPublicVerifyPaymentRoute = ApiPublicVerifyPaymentRouteImport.update({
   id: '/api/public/verify-payment',
   path: '/api/public/verify-payment',
@@ -187,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-public': typeof ApiPublicSessionPublicRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
+  '/api/public/stripe-webhook': typeof ApiPublicStripeWebhookRoute
   '/api/public/verify-payment': typeof ApiPublicVerifyPaymentRoute
 }
 export interface FileRoutesByTo {
@@ -214,6 +221,7 @@ export interface FileRoutesByTo {
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-public': typeof ApiPublicSessionPublicRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
+  '/api/public/stripe-webhook': typeof ApiPublicStripeWebhookRoute
   '/api/public/verify-payment': typeof ApiPublicVerifyPaymentRoute
 }
 export interface FileRoutesById {
@@ -242,6 +250,7 @@ export interface FileRoutesById {
   '/api/public/razorpay-webhook': typeof ApiPublicRazorpayWebhookRoute
   '/api/public/session-public': typeof ApiPublicSessionPublicRoute
   '/api/public/session-status': typeof ApiPublicSessionStatusRoute
+  '/api/public/stripe-webhook': typeof ApiPublicStripeWebhookRoute
   '/api/public/verify-payment': typeof ApiPublicVerifyPaymentRoute
 }
 export interface FileRouteTypes {
@@ -271,6 +280,7 @@ export interface FileRouteTypes {
     | '/api/public/razorpay-webhook'
     | '/api/public/session-public'
     | '/api/public/session-status'
+    | '/api/public/stripe-webhook'
     | '/api/public/verify-payment'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -298,6 +308,7 @@ export interface FileRouteTypes {
     | '/api/public/razorpay-webhook'
     | '/api/public/session-public'
     | '/api/public/session-status'
+    | '/api/public/stripe-webhook'
     | '/api/public/verify-payment'
   id:
     | '__root__'
@@ -325,6 +336,7 @@ export interface FileRouteTypes {
     | '/api/public/razorpay-webhook'
     | '/api/public/session-public'
     | '/api/public/session-status'
+    | '/api/public/stripe-webhook'
     | '/api/public/verify-payment'
   fileRoutesById: FileRoutesById
 }
@@ -353,6 +365,7 @@ export interface RootRouteChildren {
   ApiPublicRazorpayWebhookRoute: typeof ApiPublicRazorpayWebhookRoute
   ApiPublicSessionPublicRoute: typeof ApiPublicSessionPublicRoute
   ApiPublicSessionStatusRoute: typeof ApiPublicSessionStatusRoute
+  ApiPublicStripeWebhookRoute: typeof ApiPublicStripeWebhookRoute
   ApiPublicVerifyPaymentRoute: typeof ApiPublicVerifyPaymentRoute
 }
 
@@ -526,6 +539,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicSessionStatusRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/stripe-webhook': {
+      id: '/api/public/stripe-webhook'
+      path: '/api/public/stripe-webhook'
+      fullPath: '/api/public/stripe-webhook'
+      preLoaderRoute: typeof ApiPublicStripeWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/verify-payment': {
       id: '/api/public/verify-payment'
       path: '/api/public/verify-payment'
@@ -561,6 +581,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiPublicRazorpayWebhookRoute: ApiPublicRazorpayWebhookRoute,
   ApiPublicSessionPublicRoute: ApiPublicSessionPublicRoute,
   ApiPublicSessionStatusRoute: ApiPublicSessionStatusRoute,
+  ApiPublicStripeWebhookRoute: ApiPublicStripeWebhookRoute,
   ApiPublicVerifyPaymentRoute: ApiPublicVerifyPaymentRoute,
 }
 export const routeTree = rootRouteImport

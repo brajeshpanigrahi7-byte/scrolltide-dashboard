@@ -51,20 +51,22 @@ export function todayCollected(
     .reduce((sum, s) => sum + s.amount_inr, 0);
 }
 
-/** Generate a 6-char alphanumeric code using A-Z and 2-9 (no 0/1/O/I ambiguity). */
-export function generateCode(): string {
-  const CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 32 chars, no 0/1/I/O
+/** Generate a cryptographically secure random token (8+ alphanumeric characters, no 0/1/O/I ambiguity). */
+export function generateCode(length = 8): string {
+  const effectiveLength = Math.max(8, length);
+  const CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"; // 32 chars, no 0/1/I/O
   let code = "";
-  const bytes = new Uint8Array(6);
+  const bytes = new Uint8Array(effectiveLength);
   crypto.getRandomValues(bytes);
-  for (let i = 0; i < 6; i++) code += CHARS[bytes[i]! % CHARS.length];
+  for (let i = 0; i < effectiveLength; i++) {
+    code += CHARS[bytes[i]! % CHARS.length];
+  }
   return code;
 }
 
 export const PAY_URL_BASE = "https://scrolltide-dashboard.lovable.app/p/";
 
-/** Build a pay URL. Always ≤ 53 chars: base (48) + code (6) = 54 — we use base (47) + code (6) = 53. */
+/** Build a pay URL. */
 export function payUrl(code: string): string {
-  // https://scrolltide-dashboard.lovable.app/p/ABCDEF = 53 chars
   return `${PAY_URL_BASE}${code}`;
 }

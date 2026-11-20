@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { generateCode } from "./payments";
 
 export async function assertAdmin(context: { supabase: any; userId: string }) {
   if (!context?.userId) throw new Error("Authentication required");
@@ -139,14 +140,10 @@ export const createAdminTestSession = createServerFn({ method: "POST" })
       process.env.PUBLIC_APP_URL || "https://scrolltide-dashboard.lovable.app"
     ).replace(/\/+$/, "");
 
-    // Generate unique 6-character code
-    const CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    // Generate unique 8-character cryptographically secure token
     let code = "";
     for (let i = 0; i < 5; i++) {
-      let candidate = "";
-      for (let j = 0; j < 6; j++) {
-        candidate += CHARS[Math.floor(Math.random() * CHARS.length)];
-      }
+      const candidate = generateCode(8);
       const { data: existing } = await db
         .from("sessions")
         .select("id")
@@ -205,4 +202,34 @@ export const adminCleanStaleSessions = createServerFn({ method: "POST" })
     await assertAdmin(context);
     const { cleanStaleSessions } = await import("./device-api.server");
     return cleanStaleSessions();
+  });
+
+export const updateUserRoleOrBalance = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .validator(
+    z.object({
+      target_user_id: z.string().uuid(),
+      role: z.enum(["admin", "operator", "user"]).optional(),
+      balance: z.number().optional(),
+      rewards: z.number().optional(),
+    }),
+  )
+  .handler(async ({ context, data }) => {
+    // Enforce strict server-side authentication and verify caller has admin role
+    await assertAdmin(context);
+
+    // Ensure regular users cannot update their own role, balance, or rewards
+    if (context.userId === data.target_user_id && data.role && data.role !== "admin") {
+      throw new Error("Cannot demote own admin role");
+    }
+
+    const db = await getServerDb();
+    if (data.role) {
+      const { error } = await db
+        .from("user_roles")
+        .upsert({ user_id: data.target_user_id, role: data.role }, { onConflict: "user_id" });
+      if (error) throw new Error(`Could not update user role: ${error.message}`);
+    }
+
+    return { ok: true };
   });

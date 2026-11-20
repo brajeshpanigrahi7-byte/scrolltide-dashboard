@@ -195,9 +195,9 @@ describe("ESP32 Device API Endpoints", () => {
     const data = await res.json();
 
     expect(data.session_id).toBeDefined();
-    expect(data.code).toHaveLength(6);
+    expect(data.code).toHaveLength(8);
     expect(data.pay_url).toBe(`https://scrolltide-dashboard.lovable.app/p/${data.code}`);
-    expect(data.pay_url.length).toBeLessThanOrEqual(53);
+    expect(data.pay_url.length).toBeLessThanOrEqual(60);
 
     // Verify exactly the flat compact keys allowed
     expect(Object.keys(data).sort()).toEqual(["code", "pay_url", "session_id"].sort());

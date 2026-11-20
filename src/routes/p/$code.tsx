@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { supabase } from "@/integrations/supabase/client";
 
 declare global {
   interface Window {
@@ -132,14 +133,29 @@ function DriverPaymentPage() {
     return () => clearInterval(interval);
   }, [code]);
 
+  const getAuthToken = async (): Promise<string | null> => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      if (data?.session?.access_token) return data.session.access_token;
+      // If user has no active session, sign in anonymously if enabled
+      const { data: anonData } = (await (supabase.auth as any).signInAnonymously?.()) || {};
+      if (anonData?.session?.access_token) return anonData.session.access_token;
+    } catch {}
+    return null;
+  };
+
   // Open Razorpay Checkout
   const handlePayment = async (durationMin: number, kind: "new" | "extend" = "new") => {
     setPaying(true);
     setError(null);
     try {
+      const token = await getAuthToken();
+      const authHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) authHeaders["Authorization"] = `Bearer ${token}`;
+
       let orderRes = await fetch("/api/public/create-order", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders,
         body: JSON.stringify({
           code,
           duration_min: durationMin,
@@ -155,7 +171,7 @@ function DriverPaymentPage() {
           "https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/create-order",
           {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: authHeaders,
             body: JSON.stringify({
               code,
               duration_min: durationMin,
@@ -193,6 +209,9 @@ function DriverPaymentPage() {
         theme: { color: "#22c55e" },
         handler: async (response: any) => {
           try {
+            setPaymentSuccessMessage(
+              "Payment received. Verifying with server webhook to open gate...",
+            );
             let verifyRes = await fetch("/api/public/verify-payment", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -218,7 +237,6 @@ function DriverPaymentPage() {
               );
             }
 
-            setPaymentSuccessMessage("Payment received, the gate is opening...");
             fetchSession();
           } catch (verErr: any) {
             console.error("Verification error", verErr);
@@ -244,22 +262,31 @@ function DriverPaymentPage() {
     if (!confirm("Are you ready to leave now? The exit gate will open for you.")) return;
     setLeaving(true);
     try {
+      const token = await getAuthToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
       const payload = { code, session_id: session?.session_id };
       let res = await fetch("/api/public/leave-now", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
         res = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/leave-now", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify(payload),
         });
       }
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        alert(errJson.error || "Failed to trigger exit barrier");
+      }
       fetchSession();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(err.message || "Failed to trigger exit barrier");
     } finally {
       setLeaving(false);
     }

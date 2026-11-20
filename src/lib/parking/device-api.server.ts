@@ -1,4 +1,5 @@
 import { sameSecret } from "./payment-security.server";
+import { generateCode } from "./payments";
 
 // Flat, compact JSON response helper for ESP32
 function flatJson(data: unknown, status = 200): Response {
@@ -18,15 +19,6 @@ export function requireDeviceKey(request: Request): Response | null {
     return flatJson({ error: "Unauthorized" }, 401);
   }
   return null;
-}
-
-const CHARS = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-function generateCode(): string {
-  let result = "";
-  for (let i = 0; i < 6; i++) {
-    result += CHARS[Math.floor(Math.random() * CHARS.length)];
-  }
-  return result;
 }
 
 let cachedDb: any = null;
@@ -290,10 +282,10 @@ export async function deviceSession(request: Request): Promise<Response> {
       .eq("device_id", device)
       .in("status", ["pending", "awaiting_payment"]);
 
-    // 5. Generate unique 6-character code
+    // 5. Generate unique 8-character cryptographically secure token
     let code = "";
     for (let i = 0; i < 5; i++) {
-      const candidate = generateCode();
+      const candidate = generateCode(8);
       const { data: existing } = await db
         .from("sessions")
         .select("id")

@@ -331,3 +331,60 @@ export async function razorpayWebhook(request: Request): Promise<Response> {
 
   return json({ status: "ok" }, 200);
 }
+
+// ─── POST /api/public/stripe-webhook ───
+export async function stripeWebhook(request: Request): Promise<Response> {
+  const secret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) return json({ error: "STRIPE_WEBHOOK_SECRET not configured" }, 500);
+
+  const rawBody = await request.text();
+  const sigHeader =
+    request.headers.get("stripe-signature") || request.headers.get("Stripe-Signature");
+
+  if (!sigHeader) {
+    return json({ error: "Missing stripe-signature header" }, 401);
+  }
+
+  // Parse t=timestamp,v1=signature
+  const parts = sigHeader.split(",");
+  let timestamp = "";
+  let signature = "";
+  for (const part of parts) {
+    const [k, v] = part.trim().split("=");
+    if (k === "t") timestamp = v;
+    if (k === "v1") signature = v;
+  }
+
+  if (!timestamp || !signature) {
+    return json({ error: "Invalid stripe-signature format" }, 401);
+  }
+
+  const { createHmac } = await import("crypto");
+  const expectedSig = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+
+  if (!sameSecret(signature, expectedSig)) {
+    return json({ error: "Invalid signature" }, 401);
+  }
+
+  let event: Record<string, any>;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+
+  const eventType = event.type;
+  const dataObject = event.data?.object || {};
+
+  if (eventType === "payment_intent.succeeded" || eventType === "checkout.session.completed") {
+    const orderId = dataObject.metadata?.order_id || dataObject.id;
+    const paymentId = dataObject.id;
+    const amount = dataObject.amount || dataObject.amount_total;
+
+    if (orderId && paymentId && amount) {
+      await markPaidServer(orderId, paymentId, Number(amount));
+    }
+  }
+
+  return json({ received: true }, 200);
+}

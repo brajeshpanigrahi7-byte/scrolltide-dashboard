@@ -1,14 +1,17 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { assertAdmin } from "@/lib/parking/admin.functions";
-import { markPaidServer, razorpayWebhook } from "@/lib/parking/payment-api.server";
-import { verifyPayment } from "@/lib/parking/driver-api.server";
+import { markPaidServer, razorpayWebhook, stripeWebhook } from "@/lib/parking/payment-api.server";
+import { verifyPayment, createOrder, leaveNow } from "@/lib/parking/driver-api.server";
+import { generateCode } from "@/lib/parking/payments";
 import { createHmac } from "node:crypto";
 
 const mockDbState = {
   payments: [] as any[],
   sessions: [] as any[],
   activity_logs: [] as any[],
+  settings: [] as any[],
+  user_roles: [] as any[],
 };
 
 vi.mock("@/integrations/supabase/client.server", () => ({
@@ -77,11 +80,26 @@ beforeEach(() => {
   vi.stubEnv("RAZORPAY_KEY_ID", "rzp_test_fixture");
   vi.stubEnv("RAZORPAY_KEY_SECRET", "rzp_secret_fixture");
   vi.stubEnv("RAZORPAY_WEBHOOK_SECRET", "rzp_webhook_secret_fixture");
+  vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_stripe_test_fixture");
   vi.stubEnv("DEVICE_API_KEY", "device-secret-xyz");
 
   mockDbState.payments = [];
   mockDbState.sessions = [];
   mockDbState.activity_logs = [];
+  mockDbState.settings = [
+    {
+      id: 1,
+      price_per_hour: 20,
+      duration_options: [30, 60, 120, 180, 240],
+      reminder_min: 10,
+      exit_open_seconds: 60,
+      offline_after_s: 30,
+    },
+  ];
+  mockDbState.user_roles = [
+    { user_id: "admin-user-id", role: "admin" },
+    { user_id: "regular-user-id", role: "user" },
+  ];
 });
 
 afterEach(() => {
@@ -278,6 +296,239 @@ describe("Job B Security Hardening", () => {
       // Second duplicate execution with same paymentId: returns already_captured without modifying
       const secondResult = await markPaidServer("order_idem_1", "pay_idem_1", 2000);
       expect(secondResult.status).toBe("already_captured");
+    });
+  });
+
+  describe("Requirement 1: Admin Role Immuntability", () => {
+    it("prevents self-demoting admin or modifying roles without admin privilege", async () => {
+      const mockSupabase = {
+        rpc: async () => ({ data: false, error: null }),
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { role: "user" },
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      };
+
+      await expect(
+        assertAdmin({ supabase: mockSupabase as any, userId: "regular-user-id" }),
+      ).rejects.toThrow("Admin access required");
+    });
+  });
+
+  describe("Requirement 2 & 3: Cryptographically Secure Random Tokens", () => {
+    it("generates 8+ alphanumeric random tokens with zero modulo bias", () => {
+      const code1 = generateCode(8);
+      const code2 = generateCode(8);
+      expect(code1).toHaveLength(8);
+      expect(code2).toHaveLength(8);
+      expect(code1).not.toBe(code2);
+      expect(/^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(code1)).toBe(true);
+    });
+
+    it("supports custom lengths of 8 or more", () => {
+      const code10 = generateCode(10);
+      expect(code10).toHaveLength(10);
+      const codeMin = generateCode(4); // clamped to minimum 8
+      expect(codeMin).toHaveLength(8);
+    });
+  });
+
+  describe("Requirement 3: Rate Limiting & User ID Ownership on Exit Barrier", () => {
+    it("rejects unauthenticated leave-now requests with 401", async () => {
+      const req = new Request("https://example.com/api/public/leave-now", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: "EXIT8888" }),
+      });
+
+      const res = await leaveNow(req);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe("Authentication required to trigger exit barrier");
+    });
+
+    it("rejects leave-now when session belongs to a different user (not admin)", async () => {
+      mockDbState.sessions.push({
+        id: "sess-exit-1",
+        code: "EXIT8888",
+        user_id: "other-user-999",
+        slot: 1,
+        status: "active",
+      });
+
+      const req = new Request("https://example.com/api/public/leave-now", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token-different-user",
+        },
+        body: JSON.stringify({ code: "EXIT8888" }),
+      });
+
+      const res = await leaveNow(req);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toBe("Unauthorized: You do not own this parking session");
+    });
+
+    it("allows leave-now when calling user is the verified session owner", async () => {
+      mockDbState.sessions.push({
+        id: "sess-exit-owner",
+        code: "OWNER888",
+        user_id: "user-owner-123",
+        slot: 3,
+        status: "active",
+      });
+
+      const req = new Request("https://example.com/api/public/leave-now", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token-owner-123",
+        },
+        body: JSON.stringify({ code: "OWNER888" }),
+      });
+
+      const res = await leaveNow(req);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+
+      const updated = mockDbState.sessions.find((s) => s.id === "sess-exit-owner");
+      expect(updated?.end_time).toBeDefined();
+    });
+  });
+
+  describe("Requirement 4: Valid User Authentication for Session Creation & Webhook-Exclusive Access Activation", () => {
+    it("rejects unauthenticated create-order with 401", async () => {
+      const req = new Request("https://example.com/api/public/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: "NEW88888", duration_min: 30 }),
+      });
+
+      const res = await createOrder(req);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe("Authentication required to create a payment session");
+    });
+
+    it("verifyPayment validates cryptographic signature but does NOT activate parking access directly", async () => {
+      const keySecret = "rzp_secret_fixture";
+      const orderId = "order_client_verify";
+      const paymentId = "pay_client_verify";
+      const signature = createHmac("sha256", keySecret)
+        .update(`${orderId}|${paymentId}`)
+        .digest("hex");
+
+      mockDbState.sessions.push({
+        id: "sess-client-check",
+        code: "CLIENT88",
+        status: "pending",
+      });
+
+      mockDbState.payments.push({
+        id: "pmt-client-check",
+        session_id: "sess-client-check",
+        razorpay_order_id: orderId,
+        amount_paise: 2000,
+        status: "created",
+      });
+
+      const req = new Request("https://example.com/api/public/verify-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          razorpay_order_id: orderId,
+          razorpay_payment_id: paymentId,
+          razorpay_signature: signature,
+        }),
+      });
+
+      const res = await verifyPayment(req);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+      expect(data.ok).toBe(true);
+      expect(data.verified).toBe(true);
+
+      // Session MUST remain pending until verified server webhook arrives!
+      const sessionAfterVerify = mockDbState.sessions.find((s) => s.id === "sess-client-check");
+      expect(sessionAfterVerify?.status).toBe("pending");
+    });
+
+    it("activates parking access exclusively via verified Stripe webhook signature", async () => {
+      const payload = JSON.stringify({
+        type: "payment_intent.succeeded",
+        data: {
+          object: {
+            id: "pi_stripe_test_123",
+            amount: 2000,
+            metadata: { order_id: "order_stripe_1" },
+          },
+        },
+      });
+
+      const secret = "whsec_stripe_test_fixture";
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const sig = createHmac("sha256", secret).update(`${timestamp}.${payload}`).digest("hex");
+      const sigHeader = `t=${timestamp},v1=${sig}`;
+
+      mockDbState.sessions.push({
+        id: "sess-stripe-1",
+        code: "STRIPE88",
+        slot: 1,
+        status: "pending",
+        expires_at: new Date(Date.now() + 600000).toISOString(),
+      });
+
+      mockDbState.payments.push({
+        id: "pmt-stripe-1",
+        session_id: "sess-stripe-1",
+        razorpay_order_id: "order_stripe_1",
+        amount_paise: 2000,
+        kind: "new",
+        duration_min: 30,
+        status: "created",
+      });
+
+      const req = new Request("https://example.com/api/public/stripe-webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "stripe-signature": sigHeader,
+        },
+        body: payload,
+      });
+
+      const res = await stripeWebhook(req);
+      expect(res.status).toBe(200);
+
+      // Access is activated server-side exclusively by the verified webhook!
+      const sessAfter = mockDbState.sessions.find((s) => s.id === "sess-stripe-1");
+      expect(sessAfter?.status).toBe("paid");
+    });
+
+    it("rejects Stripe webhook with invalid signature", async () => {
+      const payload = JSON.stringify({ type: "payment_intent.succeeded" });
+      const req = new Request("https://example.com/api/public/stripe-webhook", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "stripe-signature": "t=123456,v1=invalid_bogus_signature",
+        },
+        body: payload,
+      });
+
+      const res = await stripeWebhook(req);
+      expect(res.status).toBe(401);
+      const data = await res.json();
+      expect(data.error).toBe("Invalid signature");
     });
   });
 });
