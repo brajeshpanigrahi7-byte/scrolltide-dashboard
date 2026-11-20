@@ -28,8 +28,21 @@ vi.mock("@/integrations/supabase/client.server", () => ({
   supabaseAdmin: {
     from: (table: string) => {
       let filtered = (mockDb as any)[table] || [];
+      let pendingUpdates: any = null;
+
+      const applyUpdates = () => {
+        if (pendingUpdates) {
+          for (const r of filtered) {
+            Object.assign(r, pendingUpdates);
+          }
+        }
+      };
+
       const builder: any = {
-        select: () => builder,
+        select: () => {
+          applyUpdates();
+          return builder;
+        },
         eq: (col: string, val: any) => {
           filtered = filtered.filter((r: any) => r[col] === val);
           return builder;
@@ -59,9 +72,22 @@ vi.mock("@/integrations/supabase/client.server", () => ({
           return builder;
         },
         order: () => builder,
-        limit: () => builder,
-        maybeSingle: async () => ({ data: filtered[0] || null, error: null }),
-        single: async () => ({ data: filtered[0] || null, error: filtered[0] ? null : new Error("Not found") }),
+        limit: (n: number) => {
+          filtered = filtered.slice(0, n);
+          return builder;
+        },
+        maybeSingle: async () => {
+          applyUpdates();
+          return { data: filtered[0] || null, error: null };
+        },
+        single: async () => {
+          applyUpdates();
+          return { data: filtered[0] || null, error: filtered[0] ? null : new Error("Not found") };
+        },
+        then: (resolve: any, reject?: any) => {
+          applyUpdates();
+          return Promise.resolve({ data: filtered, error: null }).then(resolve, reject);
+        },
         insert: (data: any) => {
           const row = Array.isArray(data) ? data[0] : data;
           const newRow = { id: row.id || `uuid-${Math.random()}`, ...row };
@@ -80,15 +106,8 @@ vi.mock("@/integrations/supabase/client.server", () => ({
           return { data: row, error: null };
         },
         update: (updates: any) => {
-          for (const r of filtered) {
-            Object.assign(r, updates);
-          }
-          return {
-            eq: builder.eq,
-            is: builder.is,
-            select: () => builder,
-            maybeSingle: async () => ({ data: filtered[0] || null, error: null }),
-          };
+          pendingUpdates = updates;
+          return builder;
         },
         delete: () => builder,
       };
@@ -180,7 +199,7 @@ describe("ESP32 Device API Endpoints", () => {
       slot: 1,
       device_id: "esp32-entry-1",
       status: "pending",
-      expires_at: new Date(Date.now() + 60000).toISOString(),
+      expires_at: new Date(Date.now() - 60000).toISOString(),
     });
 
     const req = new Request("https://example.com/device-session", {
@@ -200,6 +219,152 @@ describe("ESP32 Device API Endpoints", () => {
     // Verify old session was marked expired
     const old = mockDb.sessions.find((s) => s.id === "sess-old-pending");
     expect(old?.status).toBe("expired");
+  });
+
+  it("POST /device-session safely returns existing session on repeated ESP32 request (idempotency)", async () => {
+    mockDb.sessions.push({
+      id: "sess-curr-pending",
+      code: "CURR01",
+      slot: 2,
+      device_id: "esp32-entry-1",
+      status: "pending",
+      expires_at: new Date(Date.now() + 500000).toISOString(),
+      created_at: new Date().toISOString(),
+    });
+
+    const req = new Request("https://example.com/device-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-device-key": "test-device-secret-123",
+      },
+      body: JSON.stringify({ device: "esp32-entry-1", slot: 2 }),
+    });
+
+    const res = await deviceSession(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.session_id).toBe("sess-curr-pending");
+    expect(data.code).toBe("CURR01");
+    expect(data.pay_url).toBe("https://scrolltide-dashboard.lovable.app/p/CURR01");
+  });
+
+  it("POST /device-session does NOT block when an active session's time is already expired", async () => {
+    // Put an active session whose end_time is 10 minutes in the past
+    mockDb.sessions.push({
+      id: "sess-past-active",
+      code: "PAST01",
+      slot: 4,
+      device_id: "esp32-entry-1",
+      status: "active",
+      start_time: new Date(Date.now() - 40 * 60 * 1000).toISOString(),
+      end_time: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    });
+
+    const req = new Request("https://example.com/device-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-device-key": "test-device-secret-123",
+      },
+      body: JSON.stringify({ device: "esp32-entry-1", slot: 4 }),
+    });
+
+    const res = await deviceSession(req);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.session_id).toBeDefined();
+    expect(data.code).toBeDefined();
+
+    // The past active session should now be marked completed
+    const past = mockDb.sessions.find((s) => s.id === "sess-past-active");
+    expect(past?.status).toBe("completed");
+  });
+
+  it("POST /device-session does NOT block when an abandoned paid session is older than 15 minutes", async () => {
+    // Paid session created 25 minutes ago that was never entered
+    mockDb.sessions.push({
+      id: "sess-abandoned-paid",
+      code: "ABAN01",
+      slot: 5,
+      device_id: "esp32-entry-1",
+      status: "paid",
+      created_at: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+      paid_at: new Date(Date.now() - 24 * 60 * 1000).toISOString(),
+      entered_at: null,
+    });
+
+    const req = new Request("https://example.com/device-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-device-key": "test-device-secret-123",
+      },
+      body: JSON.stringify({ device: "esp32-entry-1", slot: 5 }),
+    });
+
+    const res = await deviceSession(req);
+    expect(res.status).toBe(201);
+    const data = await res.json();
+    expect(data.session_id).toBeDefined();
+  });
+
+  it("POST /device-session rejects genuine active unexpired session with 409 Slot reserved", async () => {
+    // Active session with 25 minutes remaining
+    mockDb.sessions.push({
+      id: "sess-truly-active",
+      code: "ACTV01",
+      slot: 1,
+      device_id: "other-car",
+      status: "active",
+      start_time: new Date().toISOString(),
+      end_time: new Date(Date.now() + 25 * 60 * 1000).toISOString(),
+    });
+
+    const req = new Request("https://example.com/device-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-device-key": "test-device-secret-123",
+      },
+      body: JSON.stringify({ device: "esp32-entry-1", slot: 1 }),
+    });
+
+    const res = await deviceSession(req);
+    expect(res.status).toBe(409);
+    const data = await res.json();
+    expect(data.error).toBe("Slot reserved");
+  });
+
+  it("POST /device-event completes active session when vehicle vacates slot", async () => {
+    mockDb.slots[0].occupied = true; // slot 1 was occupied
+    mockDb.sessions.push({
+      id: "sess-parked",
+      slot: 1,
+      status: "active",
+      start_time: new Date().toISOString(),
+      end_time: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+
+    // Device reports slot 1 is now free (occupancy 00000)
+    const req = new Request("https://example.com/device-event", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-device-key": "test-device-secret-123",
+      },
+      body: JSON.stringify({
+        device: "esp32-entry-1",
+        event: "slots",
+        occupancy: "00000",
+      }),
+    });
+
+    const res = await deviceEvent(req);
+    expect(res.status).toBe(200);
+
+    const sess = mockDb.sessions.find((s) => s.id === "sess-parked");
+    expect(sess?.status).toBe("completed");
   });
 
   it("GET /device-poll returns flat compact JSON status and paid duration", async () => {

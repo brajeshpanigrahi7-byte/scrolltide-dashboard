@@ -20,6 +20,7 @@ import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as WorkflowRouteImport } from './routes/workflow'
 import { Route as ApiTestPaymentRouteImport } from './routes/api/test-payment'
 import { Route as PCodeRouteImport } from './routes/p/$code'
+import { Route as ApiPublicCleanStaleRouteImport } from './routes/api/public/clean-stale'
 import { Route as ApiPublicCreateOrderRouteImport } from './routes/api/public/create-order'
 import { Route as ApiPublicCreateSessionRouteImport } from './routes/api/public/create-session'
 import { Route as ApiPublicDeviceDueRouteImport } from './routes/api/public/device-due'
@@ -87,6 +88,11 @@ const ApiTestPaymentRoute = ApiTestPaymentRouteImport.update({
 const PCodeRoute = PCodeRouteImport.update({
   id: '/p/$code',
   path: '/p/$code',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicCleanStaleRoute = ApiPublicCleanStaleRouteImport.update({
+  id: '/api/public/clean-stale',
+  path: '/api/public/clean-stale',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicCreateOrderRoute = ApiPublicCreateOrderRouteImport.update({
@@ -168,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/workflow': typeof WorkflowRoute
   '/api/test-payment': typeof ApiTestPaymentRoute
   '/p/$code': typeof PCodeRoute
+  '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/device-due': typeof ApiPublicDeviceDueRoute
@@ -194,6 +201,7 @@ export interface FileRoutesByTo {
   '/workflow': typeof WorkflowRoute
   '/api/test-payment': typeof ApiTestPaymentRoute
   '/p/$code': typeof PCodeRoute
+  '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/device-due': typeof ApiPublicDeviceDueRoute
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/workflow': typeof WorkflowRoute
   '/api/test-payment': typeof ApiTestPaymentRoute
   '/p/$code': typeof PCodeRoute
+  '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/device-due': typeof ApiPublicDeviceDueRoute
@@ -249,6 +258,7 @@ export interface FileRouteTypes {
     | '/workflow'
     | '/api/test-payment'
     | '/p/$code'
+    | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
     | '/api/public/device-due'
@@ -275,6 +285,7 @@ export interface FileRouteTypes {
     | '/workflow'
     | '/api/test-payment'
     | '/p/$code'
+    | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
     | '/api/public/device-due'
@@ -301,6 +312,7 @@ export interface FileRouteTypes {
     | '/workflow'
     | '/api/test-payment'
     | '/p/$code'
+    | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
     | '/api/public/device-due'
@@ -328,6 +340,7 @@ export interface RootRouteChildren {
   WorkflowRoute: typeof WorkflowRoute
   ApiTestPaymentRoute: typeof ApiTestPaymentRoute
   PCodeRoute: typeof PCodeRoute
+  ApiPublicCleanStaleRoute: typeof ApiPublicCleanStaleRoute
   ApiPublicCreateOrderRoute: typeof ApiPublicCreateOrderRoute
   ApiPublicCreateSessionRoute: typeof ApiPublicCreateSessionRoute
   ApiPublicDeviceDueRoute: typeof ApiPublicDeviceDueRoute
@@ -420,6 +433,13 @@ declare module '@tanstack/react-router' {
       path: '/p/$code'
       fullPath: '/p/$code'
       preLoaderRoute: typeof PCodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/clean-stale': {
+      id: '/api/public/clean-stale'
+      path: '/api/public/clean-stale'
+      fullPath: '/api/public/clean-stale'
+      preLoaderRoute: typeof ApiPublicCleanStaleRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/create-order': {
@@ -528,6 +548,7 @@ const rootRouteChildren: RootRouteChildren = {
   WorkflowRoute: WorkflowRoute,
   ApiTestPaymentRoute: ApiTestPaymentRoute,
   PCodeRoute: PCodeRoute,
+  ApiPublicCleanStaleRoute: ApiPublicCleanStaleRoute,
   ApiPublicCreateOrderRoute: ApiPublicCreateOrderRoute,
   ApiPublicCreateSessionRoute: ApiPublicCreateSessionRoute,
   ApiPublicDeviceDueRoute: ApiPublicDeviceDueRoute,

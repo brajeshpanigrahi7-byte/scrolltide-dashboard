@@ -47,6 +47,8 @@ function SettingsPage() {
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [lastPayUrl, setLastPayUrl] = useState<string | null>(null);
+  const [cleaningStale, setCleaningStale] = useState(false);
+  const [cleanResult, setCleanResult] = useState<string | null>(null);
 
   // Editable settings
   const [pricePerHour, setPricePerHour] = useState<number>(20);
@@ -159,6 +161,20 @@ function SettingsPage() {
     }
   };
 
+  const handleCleanStaleSessions = async () => {
+    setCleaningStale(true);
+    setCleanResult(null);
+    try {
+      const res = await fetch("/api/public/clean-stale", { method: "POST" });
+      const data = await res.json();
+      setCleanResult(data.message || "Stale sessions cleaned.");
+    } catch (e: any) {
+      setCleanResult("Clean failed: " + e.message);
+    } finally {
+      setCleaningStale(false);
+    }
+  };
+
   return (
     <div className="grid gap-5 lg:grid-cols-2">
       {/* 1. Device API & Webhook URLs */}
@@ -252,10 +268,10 @@ function SettingsPage() {
         </div>
       </Panel>
 
-      {/* 3. Razorpay Test Payment */}
-      <Panel title="Razorpay Test Payment">
+      {/* 3. Razorpay Test Payment & Session Repair */}
+      <Panel title="Razorpay Test Payment & Session Repair">
         <p className="text-sm text-muted-foreground mb-4">
-          Creates a real ₹20 parking session (Slot 1, 30 min duration) and opens the Razorpay pay link in a new window.
+          Creates a real ₹20 parking session (Slot 1, 30 min duration), opens the Razorpay pay link, and offers 1-click database repair for stale sessions.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Button onClick={handleTestPayment} disabled={testLoading} className="flex items-center gap-2">
@@ -269,9 +285,19 @@ function SettingsPage() {
               </a>
             </Button>
           )}
+          <Button
+            variant="outline"
+            onClick={handleCleanStaleSessions}
+            disabled={cleaningStale}
+            className="flex items-center gap-2 text-xs"
+          >
+            {cleaningStale ? <RefreshCw className="size-3.5 animate-spin" /> : <Check className="size-3.5 text-free" />}
+            Clean Stale Sessions & Free Slots
+          </Button>
         </div>
         {testResult && <p className="mt-3 text-xs font-mono text-emerald-400">{testResult}</p>}
         {testError && <p className="mt-3 text-xs text-destructive">{testError}</p>}
+        {cleanResult && <p className="mt-3 text-xs font-mono text-emerald-400">{cleanResult}</p>}
       </Panel>
 
       {/* 4. Parking Tariff & Rules Settings */}

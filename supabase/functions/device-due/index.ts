@@ -47,25 +47,22 @@ Deno.serve(async (req) => {
     try {
       const { data: expiredSessions, error: expErr } = await supabase
         .from("sessions")
-        .select("id, slot")
+        .select("id, slot, exit_signalled_at")
         .eq("status", "active")
-        .is("exit_signalled_at", null)
         .lte("end_time", nowIso);
 
       if (!expErr && expiredSessions && Array.isArray(expiredSessions) && expiredSessions.length > 0) {
         for (const exp of expiredSessions) {
-          const { data: updated } = await supabase
+          const shouldSignalExit = !exp.exit_signalled_at;
+          await supabase
             .from("sessions")
             .update({
               status: "completed",
-              exit_signalled_at: nowIso,
+              ...(shouldSignalExit ? { exit_signalled_at: nowIso } : {}),
             })
-            .eq("id", exp.id)
-            .is("exit_signalled_at", null)
-            .select("id")
-            .maybeSingle();
+            .eq("id", exp.id);
 
-          if (updated) {
+          if (shouldSignalExit) {
             exitOpen = true;
             try {
               await supabase.from("activity_logs").insert({

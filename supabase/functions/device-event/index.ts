@@ -83,13 +83,35 @@ Deno.serve(async (req) => {
             updated_at: nowIso,
           }, { onConflict: "slot" });
 
-        // Write activity log only when a slot actually changes
-        await supabase.from("activity_logs").insert({
-          device_id: device,
-          type: "slot_change",
-          slot: slotNum,
-          message: `Slot ${slotNum} is now ${isOccupied ? "occupied" : "free"}`,
-        });
+        // When a slot changes from occupied (1) to free (0), release any active session
+        if (wasOccupied && !isOccupied) {
+          try {
+            await supabase
+              .from("sessions")
+              .update({
+                status: "completed",
+                exit_signalled_at: nowIso,
+              })
+              .eq("slot", slotNum)
+              .eq("status", "active");
+
+            await supabase.from("activity_logs").insert({
+              device_id: device,
+              type: "slot_freed",
+              slot: slotNum,
+              message: `Vehicle exited slot ${slotNum}. Slot is now free.`,
+            });
+          } catch (sessErr) {
+            console.warn(`Could not mark slot ${slotNum} session completed:`, sessErr);
+          }
+        } else {
+          await supabase.from("activity_logs").insert({
+            device_id: device,
+            type: "slot_change",
+            slot: slotNum,
+            message: `Slot ${slotNum} is now ${isOccupied ? "occupied" : "free"}`,
+          });
+        }
       }
     }
   }
