@@ -185,16 +185,14 @@ function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
           className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex"
           title="ESP32 heartbeat"
         >
-          <Dot t={state.online ? "free" : "error"} pulse={state.online} />{" "}
-          ESP32 {state.online ? "online" : "offline"}
+          <Dot t={state.online ? "free" : "error"} pulse={state.online} /> ESP32{" "}
+          {state.online ? "online" : "offline"}
         </span>
 
         {/* User auth badge */}
         {user ? (
           <div className="flex items-center gap-2">
-            <span className="hidden text-xs text-muted-foreground md:block">
-              {user.email}
-            </span>
+            <span className="hidden text-xs text-muted-foreground md:block">{user.email}</span>
             <button
               onClick={() => signOut()}
               title="Sign out"

@@ -56,12 +56,8 @@ function LoginPage() {
           <div className="glow-primary grid size-12 place-items-center rounded-xl bg-primary text-primary-foreground">
             <ParkingSquare className="size-7" />
           </div>
-          <h1 className="text-xl font-bold tracking-tight text-foreground">
-            ParkSense
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Sign in to the operator dashboard
-          </p>
+          <h1 className="text-xl font-bold tracking-tight text-foreground">ParkSense</h1>
+          <p className="text-sm text-muted-foreground">Sign in to the operator dashboard</p>
         </div>
 
         {/* Card */}
@@ -101,11 +97,7 @@ function LoginPage() {
             </p>
           )}
 
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={submitting}
-          >
+          <Button type="submit" className="w-full" disabled={submitting}>
             {submitting ? "Signing in…" : "Sign In"}
           </Button>
         </form>

@@ -183,7 +183,7 @@ export async function sessionPublic(request: Request): Promise<Response> {
     seconds_remaining: secondsRemaining,
     amount: amountInr,
     expires_in: expiresInSeconds,
-    vehicle_no: canSeePrivateFields ? (session.vehicle_no || null) : undefined,
+    vehicle_no: canSeePrivateFields ? session.vehicle_no || null : undefined,
     price_options: priceOptions,
     price_per_hour: pricePerHour,
   });
