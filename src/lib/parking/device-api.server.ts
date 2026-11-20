@@ -269,7 +269,22 @@ export async function deviceSession(request: Request): Promise<Response> {
       }
     }
 
-    // 4. Expire any older pending/awaiting_payment sessions for this slot & device
+    // 4. Expire any older pending/awaiting_payment sessions for this slot 
+//    and device BEFORE checking for active sessions to avoid false reservation errors
+await db
+  .from("sessions")
+  .update({ status: "expired" })
+  .eq("slot", slot)
+  .in("status", ["pending", "awaiting_payment"]);
+
+await db
+  .from("sessions")
+  .update({ status: "expired" })
+  .eq("device_id", device)
+  .in("status", ["pending", "awaiting_payment"]);
+
+// 5. Validate: slot has no currently active or paid session from another car
+
     await db
       .from("sessions")
       .update({ status: "expired" })
