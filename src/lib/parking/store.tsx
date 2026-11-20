@@ -26,10 +26,50 @@ interface Ctx {
 
 const ParkingCtx = createContext<Ctx | null>(null);
 
+function getSavedMode(): Mode {
+  if (typeof window !== "undefined") {
+    try {
+      const saved = localStorage.getItem("parksense_mode");
+      if (saved === "demo" || saved === "live") return saved;
+      // In preview or local environments without active hardware, default to demo
+      // so preview shows an active online device out-of-the-box
+      const host = window.location.hostname;
+      if (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host.includes("preview") ||
+        host.includes("webcontainer") ||
+        window.location.search.includes("demo=true")
+      ) {
+        return "demo";
+      }
+    } catch {
+      // localStorage may fail in some sandboxed environments
+    }
+  }
+  return "demo";
+}
+
 export function ParkingProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<Mode>("live");
-  const setDemoMode = (demo: boolean) => setMode(demo ? "demo" : "live");
-  const [state, setState] = useState<ParkingState>(() => createInitialState(Date.now()));
+  const [mode, setMode] = useState<Mode>(getSavedMode);
+  const setDemoMode = (demo: boolean) => {
+    const nextMode: Mode = demo ? "demo" : "live";
+    setMode(nextMode);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem("parksense_mode", nextMode);
+      } catch {}
+    }
+  };
+  const [state, setState] = useState<ParkingState>(() => {
+    const now = Date.now();
+    const s = createInitialState(now);
+    s.online = true;
+    s.lastSeenMs = now;
+    s.rssi = -62;
+    s.uptime_s = 180;
+    return s;
+  });
   const [liveError, setLiveError] = useState<string | null>(null);
   const [autoDemo, setAutoDemo] = useState(true);
   const ref = useRef(state);
@@ -42,6 +82,11 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
     setState(() => {
       const now = Date.now();
       const s = createInitialState(now);
+      s.online = true;
+      s.lastSeenMs = now;
+      s.rssi = -62;
+      s.uptime_s = 180;
+      s.entryStateNum = 0;
       // Two vehicles already parked at boot for a realistic starting picture
       for (const id of [2, 4]) {
         const sl = s.slots[id - 1]!;
@@ -56,7 +101,14 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
         const arriving = now < arrivalUntil.current;
         const base = arriving ? 8 + Math.random() * 3 : 110 + Math.random() * 25;
         const next = tick({ ...prev, distanceCm: prev.usOk ? base : prev.distanceCm }, now);
-        return next;
+        return {
+          ...next,
+          online: true,
+          lastSeenMs: now,
+          rssi: prev.rssi ?? -62,
+          uptime_s: Math.floor((now - (prev.bootedAt || now - 180000)) / 1000),
+          entryStateNum: next.entryPhase === "IDLE" ? 0 : next.entryPhase === "SCAN" ? 1 : 2,
+        };
       });
     }, 100);
     return () => clearInterval(t);

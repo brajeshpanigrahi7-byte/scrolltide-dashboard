@@ -83,7 +83,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
-  const { state, mode, liveError } = useParking();
+  const { state, mode, setDemoMode, liveError } = useParking();
   const [clock, setClock] = useState<Date | null>(null);
   useEffect(() => { setClock(new Date()); const t = setInterval(() => setClock(new Date()), 1000); return () => clearInterval(t); }, []);
   const alerts = state.logs.filter((l) => l.severity === "error" || l.severity === "warning").slice(0, 5);
@@ -93,20 +93,23 @@ function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
     <header className="sticky top-0 z-40 flex h-16 items-center gap-3 border-b border-border bg-background/85 px-4 backdrop-blur md:px-6">
       <button className="lg:hidden" onClick={onMenu} aria-label="Open menu"><Menu className="size-5" /></button>
       <h1 className="truncate text-lg font-semibold">{title}</h1>
-      <div className="ml-auto flex items-center gap-2 md:gap-4">
-        {mode === "demo" ? (
-          <span title="Demo simulation mode">
-            <Pill t="warning" pulse>
-              Demo mode
-            </Pill>
+      <div className="ml-auto flex items-center gap-2 md:gap-3">
+        <button
+          onClick={() => setDemoMode(mode !== "demo")}
+          title={`Click to switch to ${mode === "demo" ? "Live hardware" : "Demo simulator"} mode`}
+          className="flex items-center gap-1.5 rounded-full border border-border/80 bg-background/60 px-2.5 py-1 text-xs transition-colors hover:border-primary/50 hover:bg-accent"
+        >
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Mode:</span>
+          <span className="font-semibold capitalize text-foreground">
+            {mode}
           </span>
-        ) : (
-          <span title={state.online ? "Hardware connected" : "Heartbeat timeout"}>
-            <Pill t={state.online ? "free" : "error"} pulse={state.online}>
-              {state.online ? "DEVICE ONLINE" : "DEVICE OFFLINE"}
-            </Pill>
-          </span>
-        )}
+        </button>
+
+        <span title={state.online ? "ESP32 active & communicating" : "Heartbeat timeout (no telemetry in last 30 s)"}>
+          <Pill t={state.online ? "free" : "error"} pulse={state.online}>
+            {state.online ? (mode === "demo" ? "DEVICE ONLINE (DEMO)" : "DEVICE ONLINE") : "DEVICE OFFLINE"}
+          </Pill>
+        </span>
         <span className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex" title="ESP32 heartbeat">
           <Dot t={state.online ? "free" : "error"} pulse={state.online} /> ESP32 {state.online ? "online" : "offline"}
         </span>

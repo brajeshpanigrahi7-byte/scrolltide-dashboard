@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Activity, Car, CheckCircle2, Clock, Cpu, Gauge, ParkingSquare, ShieldCheck } from "lucide-react";
+import { Activity, Car, CheckCircle2, Clock, Cpu, FlaskConical, Gauge, ParkingSquare, ShieldCheck } from "lucide-react";
 import { useParking } from "@/lib/parking/store";
 import { counts, occupancyPct } from "@/lib/parking/engine";
 import { ENTRY_STEPS, EXIT_STEPS } from "@/components/dash/Workflow";
 import { DemoControls } from "@/components/dash/DemoControls";
 import { GateVisual, LogList, Panel, Pill, SlotCard, StatCard, fmtTime } from "@/components/dash/kit";
 import { CollectedTotal, SessionPanel } from "@/components/dash/SessionPanel";
+import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/")({
 });
 
 function Overview() {
-  const { state: s, mode } = useParking();
+  const { state: s, mode, setDemoMode } = useParking();
   const c = counts(s);
   const sensorsOk = s.slots.filter((x) => x.sensorOk).length + (s.usOk ? 1 : 0);
   const chart = s.history.map((h) => ({ time: fmtTime(h.t), Occupied: h.occupied, Reserved: h.reserved, Free: h.free }));
@@ -37,12 +38,33 @@ function Overview() {
         <StatCard label="Reserved" value={c.reserved} t="reserved" icon={<Clock className="size-4" />} sub="60 s hold · LED yellow" />
         <StatCard label="Occupancy" value={`${occupancyPct(s).toFixed(0)}%`} icon={<Gauge className="size-4" />} sub="Occupied ÷ 5 (excl. reserved)" />
         <StatCard label="Vehicles inside" value={c.occupied} t="primary" icon={<Activity className="size-4" />} sub="Parked & detected by IR" />
-        <StatCard label="ESP32" value={s.online ? "Online" : "Offline"} t={s.online ? "free" : "error"} icon={<Cpu className="size-4" />} sub="Heartbeat" />
+        <StatCard label="ESP32" value={s.online ? (mode === "demo" ? "Online (Demo)" : "Online") : "Offline"} t={s.online ? "free" : "error"} icon={<Cpu className="size-4" />} sub="Heartbeat" />
         <StatCard label="System" value={sensorsOk === 6 ? "Normal" : "Degraded"} t={sensorsOk === 6 ? "free" : "warning"} icon={<ShieldCheck className="size-4" />} sub={`${sensorsOk}/6 sensors healthy`} />
       </div>
 
-      {mode === "live" && !s.online && <p className="text-sm text-warning">ESP32 offline — slot and barrier readings are unavailable.</p>}
-      {(mode === "demo" || s.online) && <><Panel title="Parking slots" action={<Link to="/parking" className="text-xs text-primary hover:underline">Open live view →</Link>}>
+      {mode === "live" && !s.online && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warning/40 bg-warning/10 p-3.5 text-sm text-warning">
+          <div className="flex items-center gap-2">
+            <span className="relative flex size-2">
+              <span className="size-2 rounded-full bg-warning" />
+            </span>
+            <span>
+              Physical ESP32 is offline (no heartbeat received in the last 30 s). Displaying last known database state.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-warning/50 bg-background/50 text-xs font-medium text-warning hover:bg-warning/20 hover:text-warning"
+            onClick={() => setDemoMode(true)}
+          >
+            <FlaskConical className="mr-1.5 size-3.5" />
+            Switch to Demo Simulator (Preview Online)
+          </Button>
+        </div>
+      )}
+
+      <Panel title="Parking slots" action={<Link to="/parking" className="text-xs text-primary hover:underline">Open live view →</Link>}>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">{s.slots.map((x) => <SlotCard key={x.id} slot={x} now={s.now} compact />)}</div>
       </Panel>
 
@@ -83,7 +105,6 @@ function Overview() {
           <Link to="/workflow" className="mt-3 inline-block text-xs text-primary hover:underline">View diagram →</Link>
         </Panel>
       </div>
-      </>}
     </div>
   );
 }
