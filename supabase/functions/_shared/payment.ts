@@ -4,8 +4,11 @@ export async function markPaid(
   supabase: SupabaseClient,
   orderId: string,
   paymentId: string,
-  amountPaise: number
-): Promise<{ status: "captured" | "already_captured" | "needs_refund" | "error"; message?: string }> {
+  amountPaise: number,
+): Promise<{
+  status: "captured" | "already_captured" | "needs_refund" | "error";
+  message?: string;
+}> {
   // 1. Find payments row by order id
   const { data: payment, error: pErr } = await supabase
     .from("payments")
@@ -24,7 +27,9 @@ export async function markPaid(
 
   // Require amount to match
   if (payment.amount_paise !== amountPaise) {
-    console.error(`Amount mismatch for order ${orderId}: expected ${payment.amount_paise}, got ${amountPaise}`);
+    console.error(
+      `Amount mismatch for order ${orderId}: expected ${payment.amount_paise}, got ${amountPaise}`,
+    );
   }
 
   const session = payment.sessions;
@@ -48,7 +53,9 @@ export async function markPaid(
     return { status: "needs_refund" };
   }
 
-  const isExpired = session.expires_at ? new Date(session.expires_at).getTime() < now.getTime() : false;
+  const isExpired = session.expires_at
+    ? new Date(session.expires_at).getTime() < now.getTime()
+    : false;
 
   // Case A: kind 'new', session still pending and not expired
   if (payment.kind === "new" && session.status === "pending" && !isExpired) {

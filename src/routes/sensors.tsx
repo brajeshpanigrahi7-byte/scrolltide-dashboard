@@ -1,15 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import {
-  Radar,
-  Waves,
-  Wifi,
-  Clock,
-  Activity,
-  Gauge,
-  Cpu,
-  ArrowRight,
-} from "lucide-react";
+import { Radar, Waves, Wifi, Clock, Activity, Gauge, Cpu, ArrowRight } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -30,7 +21,11 @@ export const Route = createFileRoute("/sensors")({
   head: () => ({
     meta: [
       { title: "Sensor Monitoring — ParkSense" },
-      { name: "description", content: "Live ultrasonic distance gauge, 60-reading chart, 5 IR sensors, Wi-Fi RSSI, and hardware health." },
+      {
+        name: "description",
+        content:
+          "Live ultrasonic distance gauge, 60-reading chart, 5 IR sensors, Wi-Fi RSSI, and hardware health.",
+      },
     ],
   }),
   component: Sensors,
@@ -75,7 +70,9 @@ function Sensors() {
     return () => clearInterval(interval);
   }, []);
 
-  const heartbeatAgeS = s.lastSeenMs ? Math.max(0, Math.floor((s.now - s.lastSeenMs) / 1000)) : null;
+  const heartbeatAgeS = s.lastSeenMs
+    ? Math.max(0, Math.floor((s.now - s.lastSeenMs) / 1000))
+    : null;
 
   return (
     <div className="space-y-5">
@@ -87,9 +84,15 @@ function Sensors() {
               <Wifi className="size-5" />
             </div>
             <div>
-              <p className="font-mono text-2xl font-bold">{s.rssi != null ? `${s.rssi} dBm` : "—"}</p>
+              <p className="font-mono text-2xl font-bold">
+                {s.rssi != null ? `${s.rssi} dBm` : "—"}
+              </p>
               <p className="text-xs text-muted-foreground">
-                {s.rssi != null && s.rssi > -67 ? "Excellent Signal" : s.rssi != null && s.rssi > -80 ? "Good Signal" : "Weak"}
+                {s.rssi != null && s.rssi > -67
+                  ? "Excellent Signal"
+                  : s.rssi != null && s.rssi > -80
+                    ? "Good Signal"
+                    : "Weak"}
               </p>
             </div>
           </div>
@@ -198,13 +201,23 @@ function Sensors() {
                     y={15}
                     stroke="#f43f5e"
                     strokeDasharray="4 4"
-                    label={{ value: "Detect (<15cm)", fill: "#f43f5e", fontSize: 10, position: "insideBottomLeft" }}
+                    label={{
+                      value: "Detect (<15cm)",
+                      fill: "#f43f5e",
+                      fontSize: 10,
+                      position: "insideBottomLeft",
+                    }}
                   />
                   <ReferenceLine
                     y={20}
                     stroke="#10b981"
                     strokeDasharray="4 4"
-                    label={{ value: "Clear (>20cm)", fill: "#10b981", fontSize: 10, position: "insideTopLeft" }}
+                    label={{
+                      value: "Clear (>20cm)",
+                      fill: "#10b981",
+                      fontSize: 10,
+                      position: "insideTopLeft",
+                    }}
                   />
                   <Line
                     type="monotone"
@@ -227,7 +240,9 @@ function Sensors() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {s.slots.map((x) => {
             const debouncing = x.irPendingSince !== null && x.sensorOk;
-            const prog = debouncing ? Math.min(100, ((s.now - x.irPendingSince!) / TIMING.irDebounceMs) * 100) : 0;
+            const prog = debouncing
+              ? Math.min(100, ((s.now - x.irPendingSince!) / TIMING.irDebounceMs) * 100)
+              : 0;
             const lastEvt = s.logs.find((l) => l.slot === x.id && l.category === "slot");
 
             return (
@@ -245,7 +260,9 @@ function Sensors() {
                   <dt className="text-muted-foreground">GPIO</dt>
                   <dd className="text-right text-foreground">{GPIO.ir[x.id - 1]}</dd>
                   <dt className="text-muted-foreground">State</dt>
-                  <dd className={`text-right font-bold ${x.irRaw ? "text-rose-400" : "text-emerald-400"}`}>
+                  <dd
+                    className={`text-right font-bold ${x.irRaw ? "text-rose-400" : "text-emerald-400"}`}
+                  >
                     {x.irRaw ? "DETECT" : "CLEAR"}
                   </dd>
                   <dt className="text-muted-foreground">Debounce</dt>

@@ -8,12 +8,15 @@ const json = (body: unknown, status = 200) =>
       "Content-Type": "application/json",
       "Cache-Control": "no-store",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "content-type, authorization, x-razorpay-signature, x-device-key",
+      "Access-Control-Allow-Headers":
+        "content-type, authorization, x-razorpay-signature, x-device-key",
     },
   });
 
 function requireDevice(request: Request) {
-  if (!sameSecret(request.headers.get("x-device-key"), process.env["DEVICE_API_KEY"])) {
+  const incoming = request.headers.get("x-device-key");
+  const expected = process.env["DEVICE_API_KEY"];
+  if (!expected || !sameSecret(incoming, expected)) {
     return json({ error: "Device authentication required" }, 401);
   }
   return null;
@@ -66,12 +69,18 @@ export async function createSession(request: Request) {
     });
 
     if (!response.ok) {
-      await supabaseAdmin.from("parking_sessions").update({ status: "expired" }).eq("id", session.id);
+      await supabaseAdmin
+        .from("parking_sessions")
+        .update({ status: "expired" })
+        .eq("id", session.id);
       return json({ error: "Razorpay could not create the payment link" }, 502);
     }
 
     const { id: payment_link_id, short_url } = await response.json();
-    await supabaseAdmin.from("parking_sessions").update({ payment_link_id, short_url }).eq("id", session.id);
+    await supabaseAdmin
+      .from("parking_sessions")
+      .update({ payment_link_id, short_url })
+      .eq("id", session.id);
     return json({ session_id: session.id, short_url });
   } catch {
     await supabaseAdmin.from("parking_sessions").update({ status: "expired" }).eq("id", session.id);
@@ -99,7 +108,7 @@ export async function sessionStatus(request: Request) {
 export async function markPaidServer(
   orderId: string,
   paymentId: string,
-  amountPaise: number
+  amountPaise: number,
 ): Promise<{ status: string; message?: string }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -134,7 +143,25 @@ export async function markPaidServer(
     return { status: "needs_refund" };
   }
 
-  const isExpired = session.expires_at ? new Date(session.expires_at).getTime() < now.getTime() : false;
+  // Validate that paid amount matches payment record
+  if (payment.amount_paise && amountPaise && payment.amount_paise !== amountPaise) {
+    await supabaseAdmin
+      .from("payments")
+      .update({ status: "needs_refund", razorpay_payment_id: paymentId })
+      .eq("id", payment.id);
+
+    await supabaseAdmin.from("activity_logs").insert({
+      type: "needs_refund",
+      slot: session.slot,
+      session_id: session.id,
+      message: `Payment ₹${amountPaise / 100} (${paymentId}) amount mismatch with order ₹${payment.amount_paise / 100}. Needs refund.`,
+    });
+    return { status: "needs_refund" };
+  }
+
+  const isExpired = session.expires_at
+    ? new Date(session.expires_at).getTime() < now.getTime()
+    : false;
 
   if (payment.kind === "new" && session.status === "pending" && !isExpired) {
     const { data: updatedSession } = await supabaseAdmin

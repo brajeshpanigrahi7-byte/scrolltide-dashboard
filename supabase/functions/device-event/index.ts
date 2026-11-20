@@ -35,7 +35,8 @@ Deno.serve(async (req) => {
 
   const session = typeof body.session === "string" ? body.session.trim() : null;
   const slot = typeof body.slot === "number" ? body.slot : null;
-  const occupancy = typeof body.occupancy === "string" && /^[01]{5}$/.test(body.occupancy) ? body.occupancy : null;
+  const occupancy =
+    typeof body.occupancy === "string" && /^[01]{5}$/.test(body.occupancy) ? body.occupancy : null;
 
   const state = typeof body.state === "number" ? body.state : null;
   const dist = typeof body.dist === "number" ? body.dist : null;
@@ -75,13 +76,14 @@ Deno.serve(async (req) => {
       const wasOccupied = currentMap.get(slotNum);
 
       if (wasOccupied !== isOccupied) {
-        await supabase
-          .from("slots")
-          .upsert({
+        await supabase.from("slots").upsert(
+          {
             slot: slotNum,
             occupied: isOccupied,
             updated_at: nowIso,
-          }, { onConflict: "slot" });
+          },
+          { onConflict: "slot" },
+        );
 
         // When a slot changes from occupied (1) to free (0), release any active session
         if (wasOccupied && !isOccupied) {

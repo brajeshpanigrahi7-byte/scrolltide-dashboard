@@ -26,13 +26,16 @@ export function SessionPanel({ entry = false }: { entry?: boolean }) {
 
   const filtered = rows.filter((row) => {
     const matchesFilter = filter === "all" || row.status === filter;
-    const searchTarget = `${row.slot} ${row.code} ${row.vehicle_no || ""} ${row.amount_inr}`.toLowerCase();
+    const searchTarget =
+      `${row.slot} ${row.code} ${row.vehicle_no || ""} ${row.amount_inr}`.toLowerCase();
     const matchesSearch = searchTarget.includes(search.toLowerCase());
     return matchesFilter && matchesSearch;
   });
 
   const pendingSession = rows.find((row) => row.status === "pending");
-  const payUrl = pendingSession ? `https://scrolltide-dashboard.lovable.app/p/${pendingSession.code}` : null;
+  const payUrl = pendingSession
+    ? `https://scrolltide-dashboard.lovable.app/p/${pendingSession.code}`
+    : null;
 
   return (
     <div className="space-y-5">
@@ -51,12 +54,8 @@ export function SessionPanel({ entry = false }: { entry?: boolean }) {
                       {pendingSession.code}
                     </span>
                   </div>
-                  <p className="text-2xl font-bold">
-                    Slot {pendingSession.slot}
-                  </p>
-                  <p className="text-xs text-muted-foreground font-mono">
-                    Pay URL: {payUrl}
-                  </p>
+                  <p className="text-2xl font-bold">Slot {pendingSession.slot}</p>
+                  <p className="text-xs text-muted-foreground font-mono">Pay URL: {payUrl}</p>
                   <Button asChild variant="outline" size="sm" className="mt-1">
                     <a href={payUrl} target="_blank" rel="noopener noreferrer">
                       <ExternalLink className="size-3.5 mr-1" />
@@ -67,11 +66,13 @@ export function SessionPanel({ entry = false }: { entry?: boolean }) {
               </>
             ) : (
               <p className="py-6 text-sm text-muted-foreground">
-                No active entry session waiting for payment. Car stopping at entry will generate a QR.
+                No active entry session waiting for payment. Car stopping at entry will generate a
+                QR.
               </p>
             )}
             <p className="w-full text-xs text-muted-foreground border-t border-border pt-2">
-              Entry authorization requires verified Razorpay payment. The entry barrier opens automatically upon payment confirmation.
+              Entry authorization requires verified Razorpay payment. The entry barrier opens
+              automatically upon payment confirmation.
             </p>
           </div>
         </Panel>
@@ -109,13 +110,24 @@ export function SessionPanel({ entry = false }: { entry?: boolean }) {
         ) : loading ? (
           <p className="text-xs text-muted-foreground py-4">Loading sessions…</p>
         ) : !filtered.length ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No parking sessions found.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No parking sessions found.
+          </p>
         ) : (
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full text-left text-xs">
               <thead className="bg-surface-2 text-muted-foreground border-b border-border">
                 <tr>
-                  {["Code", "Slot", "Vehicle", "Duration", "Amount", "Status", "Created (IST)", "Paid (IST)"].map((h) => (
+                  {[
+                    "Code",
+                    "Slot",
+                    "Vehicle",
+                    "Duration",
+                    "Amount",
+                    "Status",
+                    "Created (IST)",
+                    "Paid (IST)",
+                  ].map((h) => (
                     <th key={h} className="px-3 py-2.5 font-semibold">
                       {h}
                     </th>
@@ -128,15 +140,17 @@ export function SessionPanel({ entry = false }: { entry?: boolean }) {
                     row.status === "paid" || row.status === "active" || row.status === "completed"
                       ? "free"
                       : row.status === "pending"
-                      ? "reserved"
-                      : "error";
+                        ? "reserved"
+                        : "error";
 
                   return (
                     <tr key={row.id} className="hover:bg-surface-2/50 transition-colors">
                       <td className="px-3 py-2.5 font-bold text-foreground">{row.code}</td>
                       <td className="px-3 py-2.5">Slot {row.slot}</td>
                       <td className="px-3 py-2.5 uppercase">{row.vehicle_no || "—"}</td>
-                      <td className="px-3 py-2.5">{row.duration_min ? `${row.duration_min} min` : "—"}</td>
+                      <td className="px-3 py-2.5">
+                        {row.duration_min ? `${row.duration_min} min` : "—"}
+                      </td>
                       <td className="px-3 py-2.5 font-semibold text-emerald-400">
                         {row.amount_inr ? `₹${row.amount_inr}` : "—"}
                       </td>

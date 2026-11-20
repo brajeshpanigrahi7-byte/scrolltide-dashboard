@@ -11,11 +11,10 @@ function flatJson(data: unknown, status = 200): Response {
   });
 }
 
-function requireDeviceKey(request: Request): Response | null {
+export function requireDeviceKey(request: Request): Response | null {
   const incoming = request.headers.get("x-device-key");
   const expected = process.env.DEVICE_API_KEY;
-  if (incoming === "admin-test-override") return null;
-  if (!sameSecret(incoming, expected)) {
+  if (!expected || !sameSecret(incoming, expected)) {
     return flatJson({ error: "Unauthorized" }, 401);
   }
   return null;
@@ -32,8 +31,28 @@ function generateCode(): string {
 
 let cachedDb: any = null;
 
+export function resetDbClient(): void {
+  cachedDb = null;
+}
+
+export function setTestDbClient(client: any): void {
+  cachedDb = client;
+}
+
 async function getDbClient(): Promise<any> {
   if (cachedDb) return cachedDb;
+
+  const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !key) {
+    const missing = [
+      ...(!url ? ["SUPABASE_URL"] : []),
+      ...(!key ? ["SUPABASE_SERVICE_ROLE_KEY"] : []),
+    ];
+    console.error(`[Server DB] Missing Supabase environment variable(s): ${missing.join(", ")}`);
+    throw new Error("server_not_configured");
+  }
 
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -41,21 +60,11 @@ async function getDbClient(): Promise<any> {
       cachedDb = supabaseAdmin;
       return cachedDb;
     }
-  } catch (err) {
-    // Expected fallback when SUPABASE_SERVICE_ROLE_KEY is not configured in server env
+  } catch {
+    // If import threw, continue to direct createClient with validated service role key
   }
 
   const { createClient } = await import("@supabase/supabase-js");
-  const url =
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    "https://c--ed7c000c-2305-4d18-af24-04a5934fd53f-prod.lovable.cloud";
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_PUBLISHABLE_KEY ||
-    process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    "sb_publishable_kPuwTUf21eT3IZzI21t0MQ_wuq5gxNg";
-
   cachedDb = createClient(url, key, {
     auth: {
       persistSession: false,
@@ -213,7 +222,7 @@ export async function deviceSession(request: Request): Promise<Response> {
           code: existingPending.code,
           pay_url: `${publicAppUrl}/p/${existingPending.code}`,
         },
-        200
+        200,
       );
     }
 
@@ -238,7 +247,7 @@ export async function deviceSession(request: Request): Promise<Response> {
           status: "paid",
           pay_url: `${publicAppUrl}/p/${existingPaid.code}`,
         },
-        200
+        200,
       );
     }
 
@@ -339,7 +348,7 @@ export async function deviceSession(request: Request): Promise<Response> {
         code: newSession.code,
         pay_url: payUrl,
       },
-      201
+      201,
     );
   } catch (err: any) {
     console.error("Error in deviceSession:", err);
@@ -398,7 +407,7 @@ export async function devicePoll(request: Request): Promise<Response> {
         status: reportedStatus,
         duration_min: reportedStatus === "paid" ? durationMin : 0,
       },
-      200
+      200,
     );
   } catch (err: any) {
     console.error("Error in devicePoll:", err);
@@ -428,7 +437,10 @@ export async function deviceEvent(request: Request): Promise<Response> {
   try {
     const session = typeof body.session === "string" ? body.session.trim() : null;
     const slot = typeof body.slot === "number" ? body.slot : null;
-    const occupancy = typeof body.occupancy === "string" && /^[01]{5}$/.test(body.occupancy) ? body.occupancy : null;
+    const occupancy =
+      typeof body.occupancy === "string" && /^[01]{5}$/.test(body.occupancy)
+        ? body.occupancy
+        : null;
 
     const state = typeof body.state === "number" ? body.state : null;
     const dist = typeof body.dist === "number" ? body.dist : null;
@@ -451,19 +463,24 @@ export async function deviceEvent(request: Request): Promise<Response> {
     if (exitOpen !== null) deviceUpdate.exit_open = exitOpen;
     if (event === "boot") deviceUpdate.boot_at = nowIso;
 
-    try {
-      await db.from("devices").upsert(deviceUpdate, { onConflict: "id" });
-    } catch (e) {
-      console.warn("Could not upsert devices row:", e);
+    const { error: devErr } = await db.from("devices").upsert(deviceUpdate, { onConflict: "id" });
+    if (devErr) {
+      console.error("Failed to upsert devices row:", devErr.message);
+      return flatJson({ error: devErr.message }, 500);
     }
 
     // Update slots from occupancy
     if (occupancy) {
       try {
-        const { data: currentSlots } = await db
+        const { data: currentSlots, error: slotsFetchErr } = await db
           .from("slots")
           .select("slot, occupied")
           .order("slot", { ascending: true });
+
+        if (slotsFetchErr) {
+          console.error("Failed to read slots for occupancy check:", slotsFetchErr.message);
+          return flatJson({ error: slotsFetchErr.message }, 500);
+        }
 
         const currentMap = new Map((currentSlots || []).map((s: any) => [s.slot, s.occupied]));
 
@@ -473,14 +490,19 @@ export async function deviceEvent(request: Request): Promise<Response> {
           const wasOccupied = currentMap.get(slotNum);
 
           if (wasOccupied !== isOccupied) {
-            await db.from("slots").upsert(
+            const { error: slotErr } = await db.from("slots").upsert(
               {
                 slot: slotNum,
                 occupied: isOccupied,
                 updated_at: nowIso,
               },
-              { onConflict: "slot" }
+              { onConflict: "slot" },
             );
+
+            if (slotErr) {
+              console.error(`Failed to upsert slot ${slotNum}:`, slotErr.message);
+              return flatJson({ error: slotErr.message }, 500);
+            }
 
             // When a slot changes from occupied (1) to free (0), release any active session!
             if (wasOccupied && !isOccupied) {
@@ -702,7 +724,12 @@ export async function deviceDue(request: Request): Promise<Response> {
         .eq("status", "active")
         .lte("end_time", nowIso);
 
-      if (!expErr && expiredSessions && Array.isArray(expiredSessions) && expiredSessions.length > 0) {
+      if (
+        !expErr &&
+        expiredSessions &&
+        Array.isArray(expiredSessions) &&
+        expiredSessions.length > 0
+      ) {
         for (const exp of expiredSessions) {
           const shouldSignalExit = !exp.exit_signalled_at;
           await db
@@ -815,7 +842,7 @@ export async function deviceDue(request: Request): Promise<Response> {
         exit_open: exitOpen,
         warn_slots: warnSlots,
       },
-      200
+      200,
     );
   } catch (err) {
     console.error("Critical error caught in deviceDue:", err);
@@ -825,13 +852,17 @@ export async function deviceDue(request: Request): Promise<Response> {
         exit_open: false,
         warn_slots: [],
       },
-      200
+      200,
     );
   }
 }
 
 // ─── 5. Admin Stale Session Cleanup & Database Repair ───
-export async function cleanStaleSessions(): Promise<{ ok: boolean; cleaned: number; message: string }> {
+export async function cleanStaleSessions(): Promise<{
+  ok: boolean;
+  cleaned: number;
+  message: string;
+}> {
   const db = await getDbClient();
   const now = new Date();
   const nowIso = now.toISOString();
@@ -890,4 +921,53 @@ export async function cleanStaleSessions(): Promise<{ ok: boolean; cleaned: numb
     cleaned: count,
     message: `Cleaned ${count} stale or expired session(s). All slots are synchronized.`,
   };
+}
+
+// ─── 6. Safe Health Endpoint GET /api/public/device-health ───
+export async function deviceHealth(request: Request): Promise<Response> {
+  const denied = requireDeviceKey(request);
+  if (denied) return denied;
+
+  const dbAdminConfigured = Boolean(
+    (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL) &&
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+  );
+  const deviceKeyConfigured = Boolean(process.env.DEVICE_API_KEY);
+
+  let deviceRow: { id: string; last_seen: string | null; age_s: number | null } | null = null;
+
+  if (dbAdminConfigured) {
+    try {
+      const db = await getDbClient();
+      const url = new URL(request.url);
+      const deviceId = url.searchParams.get("device")?.trim() || "esp32-entry-1";
+      const { data, error } = await db
+        .from("devices")
+        .select("id, last_seen")
+        .eq("id", deviceId)
+        .maybeSingle();
+
+      if (!error && data) {
+        const ageS = data.last_seen
+          ? Math.max(0, Math.floor((Date.now() - new Date(data.last_seen).getTime()) / 1000))
+          : null;
+        deviceRow = {
+          id: data.id,
+          last_seen: data.last_seen,
+          age_s: ageS,
+        };
+      }
+    } catch (err) {
+      console.error("deviceHealth db query error:", err);
+    }
+  }
+
+  return flatJson(
+    {
+      db_admin_configured: dbAdminConfigured,
+      device_key_configured: deviceKeyConfigured,
+      device_row: deviceRow,
+    },
+    200,
+  );
 }

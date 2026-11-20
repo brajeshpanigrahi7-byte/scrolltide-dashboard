@@ -48,6 +48,7 @@ interface PriceOption {
 }
 
 interface SessionData {
+  session_id?: string;
   code: string;
   slot: number;
   status: "pending" | "paid" | "active" | "completed" | "expired" | "cancelled" | string;
@@ -86,11 +87,14 @@ function DriverPaymentPage() {
       // Try local server route first, fallback to Supabase Edge Function
       let res = await fetch(`/api/public/session-public?code=${code}`);
       if (!res.ok && res.status !== 404) {
-        res = await fetch(`https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/session-public?code=${code}`);
+        res = await fetch(
+          `https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/session-public?code=${code}`,
+        );
       }
 
       if (!res.ok) {
-        if (res.status === 404) throw new Error("Parking session not found. Please check your QR code.");
+        if (res.status === 404)
+          throw new Error("Parking session not found. Please check your QR code.");
         throw new Error("Could not load session status.");
       }
 
@@ -99,7 +103,12 @@ function DriverPaymentPage() {
       if (data.vehicle_no && !vehicleNo) setVehicleNo(data.vehicle_no);
 
       // Check 10-minute warning notification
-      if (data.status === "active" && data.seconds_remaining <= 600 && data.seconds_remaining > 0 && !notifiedTenMin) {
+      if (
+        data.status === "active" &&
+        data.seconds_remaining <= 600 &&
+        data.seconds_remaining > 0 &&
+        !notifiedTenMin
+      ) {
         setNotifiedTenMin(true);
         if ("Notification" in window && Notification.permission === "granted") {
           new Notification("ParkSense: 10 Minutes Remaining", {
@@ -142,18 +151,21 @@ function DriverPaymentPage() {
       });
 
       if (!orderRes.ok) {
-        orderRes = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/create-order", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            code,
-            duration_min: durationMin,
-            kind,
-            vehicle_no: vehicleNo.trim() || undefined,
-            contact_email: email.trim() || undefined,
-            contact_phone: phone.trim() || undefined,
-          }),
-        });
+        orderRes = await fetch(
+          "https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/create-order",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code,
+              duration_min: durationMin,
+              kind,
+              vehicle_no: vehicleNo.trim() || undefined,
+              contact_email: email.trim() || undefined,
+              contact_phone: phone.trim() || undefined,
+            }),
+          },
+        );
       }
 
       if (!orderRes.ok) {
@@ -192,15 +204,18 @@ function DriverPaymentPage() {
             });
 
             if (!verifyRes.ok) {
-              verifyRes = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/verify-payment", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_signature: response.razorpay_signature,
-                }),
-              });
+              verifyRes = await fetch(
+                "https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/verify-payment",
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_signature: response.razorpay_signature,
+                  }),
+                },
+              );
             }
 
             setPaymentSuccessMessage("Payment received, the gate is opening...");
@@ -229,16 +244,17 @@ function DriverPaymentPage() {
     if (!confirm("Are you ready to leave now? The exit gate will open for you.")) return;
     setLeaving(true);
     try {
+      const payload = { code, session_id: session?.session_id };
       let res = await fetch("/api/public/leave-now", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) {
         res = await fetch("https://ygnqotiqppdvbvpfaxwa.supabase.co/functions/v1/leave-now", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify(payload),
         });
       }
       fetchSession();
@@ -314,8 +330,12 @@ function DriverPaymentPage() {
             {session.status === "pending" && (
               <div className="space-y-5">
                 <div className="rounded-xl bg-slate-800/60 border border-slate-700/50 p-4 text-center">
-                  <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">Assigned Slot</p>
-                  <p className="text-4xl font-extrabold text-emerald-400 mt-1">Slot {session.slot}</p>
+                  <p className="text-xs text-slate-400 uppercase tracking-wider font-semibold">
+                    Assigned Slot
+                  </p>
+                  <p className="text-4xl font-extrabold text-emerald-400 mt-1">
+                    Slot {session.slot}
+                  </p>
                   <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-mono font-medium">
                     <Clock className="size-3.5" />
                     <span>Pay within {formatCountdown(session.expires_in)}</span>
@@ -330,7 +350,9 @@ function DriverPaymentPage() {
 
                 {/* Duration options */}
                 <div className="space-y-2.5">
-                  <Label className="text-xs text-slate-300 font-medium">Select Parking Duration</Label>
+                  <Label className="text-xs text-slate-300 font-medium">
+                    Select Parking Duration
+                  </Label>
                   <div className="grid grid-cols-2 gap-2">
                     {durationOptionsList.map((opt) => (
                       <button
@@ -344,9 +366,13 @@ function DriverPaymentPage() {
                         }`}
                       >
                         <div className="text-xs font-semibold">
-                          {opt.duration_min >= 60 ? `${opt.duration_min / 60} hr` : `${opt.duration_min} min`}
+                          {opt.duration_min >= 60
+                            ? `${opt.duration_min / 60} hr`
+                            : `${opt.duration_min} min`}
                         </div>
-                        <div className="text-base font-bold text-slate-100 mt-0.5">₹{opt.amount_inr}</div>
+                        <div className="text-base font-bold text-slate-100 mt-0.5">
+                          ₹{opt.amount_inr}
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -355,7 +381,9 @@ function DriverPaymentPage() {
                 {/* Optional vehicle number and contact */}
                 <div className="space-y-3 pt-1">
                   <div>
-                    <Label className="text-xs text-slate-400 font-normal">Vehicle Number (Optional)</Label>
+                    <Label className="text-xs text-slate-400 font-normal">
+                      Vehicle Number (Optional)
+                    </Label>
                     <Input
                       placeholder="e.g. MH 02 AB 1234"
                       value={vehicleNo}
@@ -401,8 +429,9 @@ function DriverPaymentPage() {
                     <>
                       <span>
                         Pay ₹
-                        {durationOptionsList.find((x) => x.duration_min === selectedDuration)?.amount_inr || 20} with
-                        Razorpay
+                        {durationOptionsList.find((x) => x.duration_min === selectedDuration)
+                          ?.amount_inr || 20}{" "}
+                        with Razorpay
                       </span>
                       <ArrowRight className="size-4" />
                     </>
@@ -419,7 +448,9 @@ function DriverPaymentPage() {
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-slate-100">Gate is Opening!</h2>
-                  <p className="text-sm text-emerald-400 font-medium mt-1">Please drive to Slot {session.slot}</p>
+                  <p className="text-sm text-emerald-400 font-medium mt-1">
+                    Please drive to Slot {session.slot}
+                  </p>
                 </div>
                 <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/60 text-xs text-slate-400 space-y-1">
                   <p>Your barrier is opening automatically.</p>
@@ -440,10 +471,14 @@ function DriverPaymentPage() {
                 )}
 
                 <div className="rounded-2xl bg-gradient-to-b from-slate-800/80 to-slate-900 border border-slate-700/80 p-6 text-center space-y-2">
-                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">Remaining Time</p>
+                  <p className="text-xs text-slate-400 uppercase tracking-widest font-bold">
+                    Remaining Time
+                  </p>
                   <p
                     className={`font-mono text-5xl font-black tracking-tight ${
-                      session.seconds_remaining <= 600 ? "text-amber-400 animate-pulse" : "text-emerald-400"
+                      session.seconds_remaining <= 600
+                        ? "text-amber-400 animate-pulse"
+                        : "text-emerald-400"
                     }`}
                   >
                     {formatCountdown(session.seconds_remaining)}
@@ -495,7 +530,9 @@ function DriverPaymentPage() {
                     className="w-full h-10 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl flex items-center justify-center gap-2 border border-slate-700"
                   >
                     <LogOut className="size-3.5 text-amber-400" />
-                    <span>{leaving ? "Signalling exit..." : "I'm leaving now (Open Exit Gate)"}</span>
+                    <span>
+                      {leaving ? "Signalling exit..." : "I'm leaving now (Open Exit Gate)"}
+                    </span>
                   </Button>
                 </div>
               </div>
@@ -509,7 +546,9 @@ function DriverPaymentPage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-slate-100">Parking Completed</h2>
-                  <p className="text-xs text-slate-400 mt-1">Thank you for parking with ParkSense!</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Thank you for parking with ParkSense!
+                  </p>
                 </div>
                 <div className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 text-left text-xs space-y-2">
                   <div className="flex justify-between">
@@ -518,7 +557,9 @@ function DriverPaymentPage() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-400">Total Duration</span>
-                    <span className="font-semibold text-slate-200">{session.duration_min} minutes</span>
+                    <span className="font-semibold text-slate-200">
+                      {session.duration_min} minutes
+                    </span>
                   </div>
                   <div className="flex justify-between border-t border-slate-700/60 pt-2">
                     <span className="text-slate-400">Amount Paid</span>

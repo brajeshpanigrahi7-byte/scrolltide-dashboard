@@ -8,5 +8,8 @@ export function sameSecret(a: string | null, b: string | undefined) {
 }
 export function validWebhook(raw: string, signature: string | null, secret: string | undefined) {
   if (!secret || !signature || !/^[a-f0-9]{64}$/i.test(signature)) return false;
-  return timingSafeEqual(createHmac("sha256", secret).update(raw).digest(), Buffer.from(signature, "hex"));
+  return timingSafeEqual(
+    createHmac("sha256", secret).update(raw).digest(),
+    Buffer.from(signature, "hex"),
+  );
 }

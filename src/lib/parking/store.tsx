@@ -123,7 +123,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
       try {
         const now = Date.now();
 
-        // 1. Fetch settings
+        // 1. Fetch settings (settings has public read for pricing options)
         const { data: settingsData } = await supabase
           .from("settings")
           .select("*")
@@ -131,6 +131,10 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
           .maybeSingle();
 
         const offlineAfterS = settingsData?.offline_after_s ?? 30;
+
+        // Check authentication state for RLS
+        const { data: authSessionData } = await supabase.auth.getSession();
+        const user = authSessionData?.session?.user;
 
         // 2. Fetch device
         const { data: devData, error: devErr } = await supabase
@@ -140,7 +144,17 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
           .limit(1)
           .maybeSingle();
 
+        if (devErr) {
+          console.error("Error fetching devices:", devErr);
+        }
+
         let device: any = devData;
+        const isAuthError = Boolean(
+          (!user && !device) ||
+          devErr?.code === "42501" ||
+          devErr?.code === "PGRST301" ||
+          devErr?.message?.toLowerCase().includes("permission"),
+        );
 
         if (devErr && !device) {
           // Fallback check esp32_devices if legacy
@@ -187,9 +201,10 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
           .order("ts", { ascending: false })
           .limit(60);
 
-        const latestDistance = telemetryData && telemetryData[0]?.dist_cm != null
-          ? Number(telemetryData[0].dist_cm)
-          : 120;
+        const latestDistance =
+          telemetryData && telemetryData[0]?.dist_cm != null
+            ? Number(telemetryData[0].dist_cm)
+            : 120;
 
         // 6. Fetch recent activity logs
         const { data: logsData } = await supabase
@@ -210,14 +225,14 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
 
         const todayRevenueInr = (paymentsData ?? []).reduce(
           (sum: number, p: any) => sum + Math.round((p.amount_paise || 0) / 100),
-          0
+          0,
         );
 
         if (!active) return;
 
         const activeSessions = (sessionsData ?? []).filter((s: any) => s.status === "active");
         const pendingSession = (sessionsData ?? []).find(
-          (s: any) => s.status === "pending" && Date.parse(s.expires_at) > now
+          (s: any) => s.status === "pending" && Date.parse(s.expires_at) > now,
         );
 
         const mappedLogs: LogEvent[] = (logsData ?? []).map((l: any, idx: number) => ({
@@ -226,18 +241,18 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
           category: (l.type === "entered" || l.type === "session_created"
             ? "entry"
             : l.type === "exit_opened" || l.type === "leave_now"
-            ? "exit"
-            : l.type === "slot_change"
-            ? "slot"
-            : "system") as LogCategory,
+              ? "exit"
+              : l.type === "slot_change"
+                ? "slot"
+                : "system") as LogCategory,
           message: l.message || `${l.type} event`,
           severity: (l.type === "needs_refund"
             ? "error"
             : l.type === "payment_received" || l.type === "exit_opened"
-            ? "success"
-            : l.type === "reminder_sent"
-            ? "warning"
-            : "info") as Severity,
+              ? "success"
+              : l.type === "reminder_sent"
+                ? "warning"
+                : "info") as Severity,
           slot: l.slot ?? undefined,
         }));
 
@@ -266,7 +281,8 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
             const slotDb = slotsData?.find((sd: any) => sd.slot === slotNum);
             const activeSess = activeSessions.find((as: any) => as.slot === slotNum);
             const pendingSess = sessionsData?.find(
-              (ps: any) => ps.slot === slotNum && ps.status === "pending" && Date.parse(ps.expires_at) > now
+              (ps: any) =>
+                ps.slot === slotNum && ps.status === "pending" && Date.parse(ps.expires_at) > now,
             );
 
             let status: "FREE" | "RESERVED" | "OCCUPIED" = "FREE";
@@ -287,7 +303,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
               ...s,
               status,
               irRaw: isOccupied,
-              lastUpdate: slotDb?.updated_at ? Date.parse(slotDb.updated_at) : (lastSeenMs || now),
+              lastUpdate: slotDb?.updated_at ? Date.parse(slotDb.updated_at) : lastSeenMs || now,
               sensorOk: true,
               sessionCode: activeSess?.code || pendingSess?.code || null,
               vehicleNo: activeSess?.vehicle_no || null,
@@ -297,16 +313,20 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
             };
           });
 
+          next.authRequired = isAuthError;
+
           // OLED display simulation
-          next.oled = isOnline
-            ? entryStateNum === 1
-              ? ["WAITING PAYMENT", pendingSession ? `SLOT ${pendingSession.slot}` : "SCAN QR"]
-              : entryStateNum === 2
-              ? ["BARRIER OPEN", "PROCEED TO SLOT"]
-              : entryStateNum === 3
-              ? ["PARKING FULL", "NO FREE SLOTS"]
-              : ["PARKSENSE LIVE", "SYSTEM READY"]
-            : ["DEVICE OFFLINE", "WAITING ESP32"];
+          next.oled = isAuthError
+            ? ["SIGN IN REQUIRED", "ADMIN AUTH REQ"]
+            : isOnline
+              ? entryStateNum === 1
+                ? ["WAITING PAYMENT", pendingSession ? `SLOT ${pendingSession.slot}` : "SCAN QR"]
+                : entryStateNum === 2
+                  ? ["BARRIER OPEN", "PROCEED TO SLOT"]
+                  : entryStateNum === 3
+                    ? ["PARKING FULL", "NO FREE SLOTS"]
+                    : ["PARKSENSE LIVE", "SYSTEM READY"]
+              : ["DEVICE OFFLINE", "WAITING ESP32"];
 
           return next;
         });
@@ -395,9 +415,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
           log(
             s,
             "sensor",
-            s.usOk
-              ? "HC-SR04 communication restored"
-              : "HC-SR04 communication failure (no echo)",
+            s.usOk ? "HC-SR04 communication restored" : "HC-SR04 communication failure (no echo)",
             s.usOk ? "success" : "error",
           );
         } else {
@@ -406,9 +424,7 @@ export function ParkingProvider({ children }: { children: ReactNode }) {
           log(
             s,
             "sensor",
-            sl.sensorOk
-              ? `IR sensor ${slot} restored`
-              : `IR sensor ${slot} communication failure`,
+            sl.sensorOk ? `IR sensor ${slot} restored` : `IR sensor ${slot} communication failure`,
             sl.sensorOk ? "success" : "error",
             slot,
           );

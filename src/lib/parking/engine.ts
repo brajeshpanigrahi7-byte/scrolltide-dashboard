@@ -109,7 +109,13 @@ export function tick(prev: ParkingState, now: number): ParkingState {
       slot.status = "FREE";
       slot.reservedUntil = null;
       slot.lastUpdate = now;
-      log(s, "slot", `Reservation for slot ${slot.id} expired (60 s) — LED green`, "warning", slot.id);
+      log(
+        s,
+        "slot",
+        `Reservation for slot ${slot.id} expired (60 s) — LED green`,
+        "warning",
+        slot.id,
+      );
     }
   }
 

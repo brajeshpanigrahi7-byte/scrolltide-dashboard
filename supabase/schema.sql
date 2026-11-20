@@ -113,12 +113,33 @@ INSERT INTO public.settings (id, price_per_hour, duration_options, reminder_min,
 VALUES (1, 20, '[30, 60, 120, 180, 240]'::jsonb, 10, 60, 30)
 ON CONFLICT (id) DO NOTHING;
 
--- 9. User Roles table for admin login
+-- 9. User Roles table for admin login (no default role, new sign-ups do not get admin automatically)
 CREATE TABLE IF NOT EXISTS public.user_roles (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL UNIQUE,
-  role text NOT NULL DEFAULT 'admin'
+  role text NOT NULL
 );
+
+-- 10. Role Verification Function (SECURITY DEFINER to avoid recursion in RLS)
+CREATE OR REPLACE FUNCTION public.has_role(user_uuid uuid, required_role text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+BEGIN
+  IF user_uuid IS NULL THEN
+    RETURN false;
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = user_uuid AND role = required_role
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.has_role(uuid, text) TO authenticated, anon;
 
 -- Grants & Row Level Security
 ALTER TABLE public.devices ENABLE ROW LEVEL SECURITY;
@@ -134,39 +155,60 @@ ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
 -- Service role full access
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 
--- Grants on device_commands
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.device_commands TO authenticated;
-GRANT SELECT, UPDATE ON public.device_commands TO anon;
-GRANT ALL ON public.device_commands TO service_role;
+-- Revoke write privileges on user_roles
+REVOKE INSERT, UPDATE, DELETE ON public.user_roles FROM authenticated, anon;
 
 -- Authenticated admins can SELECT all tables
-CREATE POLICY admin_select_devices ON public.devices FOR SELECT TO authenticated USING (true);
-CREATE POLICY admin_select_slots ON public.slots FOR SELECT TO authenticated USING (true);
-CREATE POLICY admin_select_sessions ON public.sessions FOR SELECT TO authenticated USING (true);
-CREATE POLICY admin_select_payments ON public.payments FOR SELECT TO authenticated USING (true);
-CREATE POLICY admin_select_telemetry ON public.device_telemetry FOR SELECT TO authenticated USING (true);
-CREATE POLICY admin_select_logs ON public.activity_logs FOR SELECT TO authenticated USING (true);
-CREATE POLICY admin_manage_settings ON public.settings FOR ALL TO authenticated USING (true);
-CREATE POLICY admin_select_roles ON public.user_roles FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS admin_select_devices ON public.devices;
+CREATE POLICY admin_select_devices ON public.devices FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS admin_select_slots ON public.slots;
+CREATE POLICY admin_select_slots ON public.slots FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS admin_select_sessions ON public.sessions;
+CREATE POLICY admin_select_sessions ON public.sessions FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS admin_select_payments ON public.payments;
+CREATE POLICY admin_select_payments ON public.payments FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS admin_select_telemetry ON public.device_telemetry;
+CREATE POLICY admin_select_telemetry ON public.device_telemetry FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS admin_select_logs ON public.activity_logs;
+CREATE POLICY admin_select_logs ON public.activity_logs FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS admin_manage_settings ON public.settings;
+CREATE POLICY admin_manage_settings ON public.settings FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+
+DROP POLICY IF EXISTS public_read_settings ON public.settings;
+CREATE POLICY public_read_settings ON public.settings FOR SELECT TO authenticated, anon USING (true);
+
+DROP POLICY IF EXISTS admin_select_roles ON public.user_roles;
+CREATE POLICY admin_select_roles ON public.user_roles FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin') OR auth.uid() = user_id);
 
 -- device_commands RLS policies
+DROP POLICY IF EXISTS admins_insert_commands ON public.device_commands;
 CREATE POLICY admins_insert_commands ON public.device_commands
   FOR INSERT TO authenticated
-  WITH CHECK (true);
+  WITH CHECK (public.has_role(auth.uid(), 'admin'));
 
+DROP POLICY IF EXISTS admins_select_commands ON public.device_commands;
 CREATE POLICY admins_select_commands ON public.device_commands
   FOR SELECT TO authenticated
-  USING (true);
+  USING (public.has_role(auth.uid(), 'admin'));
 
+DROP POLICY IF EXISTS admins_update_commands ON public.device_commands;
 CREATE POLICY admins_update_commands ON public.device_commands
   FOR UPDATE TO authenticated
-  USING (true)
-  WITH CHECK (true);
+  USING (public.has_role(auth.uid(), 'admin'))
+  WITH CHECK (public.has_role(auth.uid(), 'admin'));
 
+DROP POLICY IF EXISTS anon_read_pending_commands ON public.device_commands;
 CREATE POLICY anon_read_pending_commands ON public.device_commands
   FOR SELECT TO anon
   USING (consumed_at IS NULL);
 
+DROP POLICY IF EXISTS anon_update_pending_commands ON public.device_commands;
 CREATE POLICY anon_update_pending_commands ON public.device_commands
   FOR UPDATE TO anon
   USING (consumed_at IS NULL)

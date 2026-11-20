@@ -53,7 +53,13 @@ export interface ParkingState {
   buzzerUntil: number;
   stageTimes: Record<string, number>;
   logs: LogEvent[];
-  counters: { entries: number; exits: number; full: number; irEvents: number; usDetections: number };
+  counters: {
+    entries: number;
+    exits: number;
+    full: number;
+    irEvents: number;
+    usDetections: number;
+  };
   history: { t: number; free: number; reserved: number; occupied: number }[];
   rssi?: number | null;
   uptime_s?: number | null;
@@ -65,6 +71,8 @@ export interface ParkingState {
   todayRevenueInr?: number;
   settings?: any;
   telemetryHistory?: { ts: number; dist_cm: number }[];
+  authRequired?: boolean;
+  authError?: string | null;
 }
 
 export const QR_TEXT = "upi://pay?pa=smartparking@upi&am=20&cu=INR";

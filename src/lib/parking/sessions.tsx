@@ -53,11 +53,13 @@ export function SessionsProvider({ children }: { children: ReactNode }) {
   const loadSessions = async () => {
     try {
       // 1. Fetch sessions from sessions table
-      let { data: sessionsData, error: sessErr } = await supabase
+      const { data: fetchedData, error: sessErr } = await supabase
         .from("sessions")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(100);
+
+      let sessionsData = fetchedData;
 
       if (sessErr) {
         // Fallback to legacy parking_sessions if sessions table has not yet migrated
@@ -90,7 +92,7 @@ export function SessionsProvider({ children }: { children: ReactNode }) {
           slot: s.slot,
           status: s.status,
           duration_min: s.duration_min || 0,
-          amount_inr: s.amount_paise ? Math.round(s.amount_paise / 100) : (s.amount_inr || 0),
+          amount_inr: s.amount_paise ? Math.round(s.amount_paise / 100) : s.amount_inr || 0,
           vehicle_no: s.vehicle_no,
           contact_email: s.contact_email,
           contact_phone: s.contact_phone,

@@ -9,7 +9,8 @@ const run = (s: ReturnType<typeof createInitialState>, from: number, ms: number,
 describe("parking firmware rules", () => {
   it("reserves the first free slot for 60 s after 5 readings under 15 cm", () => {
     let s = createInitialState(0);
-    s.slots[0]!.status = "OCCUPIED"; s.slots[0]!.irRaw = true;
+    s.slots[0]!.status = "OCCUPIED";
+    s.slots[0]!.irRaw = true;
     s = run(s, 0, 500, 8);
     expect(s.slots[1]!.status).toBe("RESERVED");
     expect(s.slots[1]!.reservedUntil).toBe(500 + 60_000);
@@ -18,7 +19,10 @@ describe("parking firmware rules", () => {
 
   it("shows PARKING FULL and keeps gate closed when no slot is free", () => {
     let s = createInitialState(0);
-    s.slots.forEach((x) => { x.status = "OCCUPIED"; x.irRaw = true; });
+    s.slots.forEach((x) => {
+      x.status = "OCCUPIED";
+      x.irRaw = true;
+    });
     s = run(s, 0, 500, 8);
     expect(s.entryPhase).toBe("FULL");
     expect(s.entryServo).toBe(0);
@@ -26,7 +30,8 @@ describe("parking firmware rules", () => {
 
   it("occupancy excludes reserved slots", () => {
     const s = createInitialState(0);
-    s.slots[0]!.status = "OCCUPIED"; s.slots[1]!.status = "RESERVED";
+    s.slots[0]!.status = "OCCUPIED";
+    s.slots[1]!.status = "RESERVED";
     expect(occupancyPct(s)).toBe(20);
   });
 

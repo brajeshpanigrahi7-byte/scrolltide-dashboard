@@ -158,7 +158,7 @@ Deno.serve(async (req) => {
           pay_url: `${publicAppUrl}/p/${existingPending.code}`,
         },
         200,
-        corsHeaders
+        corsHeaders,
       );
     }
 
@@ -184,7 +184,7 @@ Deno.serve(async (req) => {
           pay_url: `${publicAppUrl}/p/${existingPaid.code}`,
         },
         200,
-        corsHeaders
+        corsHeaders,
       );
     }
 
@@ -263,7 +263,11 @@ Deno.serve(async (req) => {
       .single();
 
     if (insertErr || !newSession) {
-      return jsonResponse({ error: insertErr?.message || "Failed to create session" }, 500, corsHeaders);
+      return jsonResponse(
+        { error: insertErr?.message || "Failed to create session" },
+        500,
+        corsHeaders,
+      );
     }
 
     // 7. Log session created to activity_logs
@@ -287,7 +291,7 @@ Deno.serve(async (req) => {
         pay_url: payUrl,
       },
       201,
-      corsHeaders
+      corsHeaders,
     );
   } catch (err: any) {
     console.error("Error in device-session function:", err);

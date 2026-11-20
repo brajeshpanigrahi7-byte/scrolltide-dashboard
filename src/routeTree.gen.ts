@@ -18,13 +18,13 @@ import { Route as ParkingRouteImport } from './routes/parking'
 import { Route as SensorsRouteImport } from './routes/sensors'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as WorkflowRouteImport } from './routes/workflow'
-import { Route as ApiTestPaymentRouteImport } from './routes/api/test-payment'
 import { Route as PCodeRouteImport } from './routes/p/$code'
 import { Route as ApiPublicCleanStaleRouteImport } from './routes/api/public/clean-stale'
 import { Route as ApiPublicCreateOrderRouteImport } from './routes/api/public/create-order'
 import { Route as ApiPublicCreateSessionRouteImport } from './routes/api/public/create-session'
 import { Route as ApiPublicDeviceDueRouteImport } from './routes/api/public/device-due'
 import { Route as ApiPublicDeviceEventRouteImport } from './routes/api/public/device-event'
+import { Route as ApiPublicDeviceHealthRouteImport } from './routes/api/public/device-health'
 import { Route as ApiPublicDevicePollRouteImport } from './routes/api/public/device-poll'
 import { Route as ApiPublicDeviceSessionRouteImport } from './routes/api/public/device-session'
 import { Route as ApiPublicExtendSessionRouteImport } from './routes/api/public/extend-session'
@@ -80,11 +80,6 @@ const WorkflowRoute = WorkflowRouteImport.update({
   path: '/workflow',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiTestPaymentRoute = ApiTestPaymentRouteImport.update({
-  id: '/api/test-payment',
-  path: '/api/test-payment',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const PCodeRoute = PCodeRouteImport.update({
   id: '/p/$code',
   path: '/p/$code',
@@ -113,6 +108,11 @@ const ApiPublicDeviceDueRoute = ApiPublicDeviceDueRouteImport.update({
 const ApiPublicDeviceEventRoute = ApiPublicDeviceEventRouteImport.update({
   id: '/api/public/device-event',
   path: '/api/public/device-event',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicDeviceHealthRoute = ApiPublicDeviceHealthRouteImport.update({
+  id: '/api/public/device-health',
+  path: '/api/public/device-health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicDevicePollRoute = ApiPublicDevicePollRouteImport.update({
@@ -172,13 +172,13 @@ export interface FileRoutesByFullPath {
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
-  '/api/test-payment': typeof ApiTestPaymentRoute
   '/p/$code': typeof PCodeRoute
   '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/device-due': typeof ApiPublicDeviceDueRoute
   '/api/public/device-event': typeof ApiPublicDeviceEventRoute
+  '/api/public/device-health': typeof ApiPublicDeviceHealthRoute
   '/api/public/device-poll': typeof ApiPublicDevicePollRoute
   '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
   '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
@@ -199,13 +199,13 @@ export interface FileRoutesByTo {
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
-  '/api/test-payment': typeof ApiTestPaymentRoute
   '/p/$code': typeof PCodeRoute
   '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/device-due': typeof ApiPublicDeviceDueRoute
   '/api/public/device-event': typeof ApiPublicDeviceEventRoute
+  '/api/public/device-health': typeof ApiPublicDeviceHealthRoute
   '/api/public/device-poll': typeof ApiPublicDevicePollRoute
   '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
   '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
@@ -227,13 +227,13 @@ export interface FileRoutesById {
   '/sensors': typeof SensorsRoute
   '/settings': typeof SettingsRoute
   '/workflow': typeof WorkflowRoute
-  '/api/test-payment': typeof ApiTestPaymentRoute
   '/p/$code': typeof PCodeRoute
   '/api/public/clean-stale': typeof ApiPublicCleanStaleRoute
   '/api/public/create-order': typeof ApiPublicCreateOrderRoute
   '/api/public/create-session': typeof ApiPublicCreateSessionRoute
   '/api/public/device-due': typeof ApiPublicDeviceDueRoute
   '/api/public/device-event': typeof ApiPublicDeviceEventRoute
+  '/api/public/device-health': typeof ApiPublicDeviceHealthRoute
   '/api/public/device-poll': typeof ApiPublicDevicePollRoute
   '/api/public/device-session': typeof ApiPublicDeviceSessionRoute
   '/api/public/extend-session': typeof ApiPublicExtendSessionRoute
@@ -256,13 +256,13 @@ export interface FileRouteTypes {
     | '/sensors'
     | '/settings'
     | '/workflow'
-    | '/api/test-payment'
     | '/p/$code'
     | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
     | '/api/public/device-due'
     | '/api/public/device-event'
+    | '/api/public/device-health'
     | '/api/public/device-poll'
     | '/api/public/device-session'
     | '/api/public/extend-session'
@@ -283,13 +283,13 @@ export interface FileRouteTypes {
     | '/sensors'
     | '/settings'
     | '/workflow'
-    | '/api/test-payment'
     | '/p/$code'
     | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
     | '/api/public/device-due'
     | '/api/public/device-event'
+    | '/api/public/device-health'
     | '/api/public/device-poll'
     | '/api/public/device-session'
     | '/api/public/extend-session'
@@ -310,13 +310,13 @@ export interface FileRouteTypes {
     | '/sensors'
     | '/settings'
     | '/workflow'
-    | '/api/test-payment'
     | '/p/$code'
     | '/api/public/clean-stale'
     | '/api/public/create-order'
     | '/api/public/create-session'
     | '/api/public/device-due'
     | '/api/public/device-event'
+    | '/api/public/device-health'
     | '/api/public/device-poll'
     | '/api/public/device-session'
     | '/api/public/extend-session'
@@ -338,13 +338,13 @@ export interface RootRouteChildren {
   SensorsRoute: typeof SensorsRoute
   SettingsRoute: typeof SettingsRoute
   WorkflowRoute: typeof WorkflowRoute
-  ApiTestPaymentRoute: typeof ApiTestPaymentRoute
   PCodeRoute: typeof PCodeRoute
   ApiPublicCleanStaleRoute: typeof ApiPublicCleanStaleRoute
   ApiPublicCreateOrderRoute: typeof ApiPublicCreateOrderRoute
   ApiPublicCreateSessionRoute: typeof ApiPublicCreateSessionRoute
   ApiPublicDeviceDueRoute: typeof ApiPublicDeviceDueRoute
   ApiPublicDeviceEventRoute: typeof ApiPublicDeviceEventRoute
+  ApiPublicDeviceHealthRoute: typeof ApiPublicDeviceHealthRoute
   ApiPublicDevicePollRoute: typeof ApiPublicDevicePollRoute
   ApiPublicDeviceSessionRoute: typeof ApiPublicDeviceSessionRoute
   ApiPublicExtendSessionRoute: typeof ApiPublicExtendSessionRoute
@@ -421,13 +421,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkflowRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/test-payment': {
-      id: '/api/test-payment'
-      path: '/api/test-payment'
-      fullPath: '/api/test-payment'
-      preLoaderRoute: typeof ApiTestPaymentRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/p/$code': {
       id: '/p/$code'
       path: '/p/$code'
@@ -468,6 +461,13 @@ declare module '@tanstack/react-router' {
       path: '/api/public/device-event'
       fullPath: '/api/public/device-event'
       preLoaderRoute: typeof ApiPublicDeviceEventRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/device-health': {
+      id: '/api/public/device-health'
+      path: '/api/public/device-health'
+      fullPath: '/api/public/device-health'
+      preLoaderRoute: typeof ApiPublicDeviceHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/device-poll': {
@@ -546,13 +546,13 @@ const rootRouteChildren: RootRouteChildren = {
   SensorsRoute: SensorsRoute,
   SettingsRoute: SettingsRoute,
   WorkflowRoute: WorkflowRoute,
-  ApiTestPaymentRoute: ApiTestPaymentRoute,
   PCodeRoute: PCodeRoute,
   ApiPublicCleanStaleRoute: ApiPublicCleanStaleRoute,
   ApiPublicCreateOrderRoute: ApiPublicCreateOrderRoute,
   ApiPublicCreateSessionRoute: ApiPublicCreateSessionRoute,
   ApiPublicDeviceDueRoute: ApiPublicDeviceDueRoute,
   ApiPublicDeviceEventRoute: ApiPublicDeviceEventRoute,
+  ApiPublicDeviceHealthRoute: ApiPublicDeviceHealthRoute,
   ApiPublicDevicePollRoute: ApiPublicDevicePollRoute,
   ApiPublicDeviceSessionRoute: ApiPublicDeviceSessionRoute,
   ApiPublicExtendSessionRoute: ApiPublicExtendSessionRoute,

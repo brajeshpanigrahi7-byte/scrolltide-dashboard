@@ -11,7 +11,10 @@ export function DemoControls({ compact }: { compact?: boolean }) {
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/20 px-3.5 py-2 text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <Radio className="size-3.5 text-primary" />
-          <span>Live Hardware Mode · Listening for ESP32 (<code className="font-mono text-foreground">esp32-entry-1</code>)</span>
+          <span>
+            Live Hardware Mode · Listening for ESP32 (
+            <code className="font-mono text-foreground">esp32-entry-1</code>)
+          </span>
           {!state.online && <span className="font-medium text-warning">· Device offline</span>}
         </div>
         <Button
@@ -30,16 +33,20 @@ export function DemoControls({ compact }: { compact?: boolean }) {
   return (
     <div className="panel flex flex-wrap items-center gap-2 border-warning/30 p-3">
       <span className="mr-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-warning">
-        <FlaskConical className="size-4" />Demo simulator
+        <FlaskConical className="size-4" />
+        Demo simulator
       </span>
       <Button size="sm" variant="secondary" onClick={actions.vehicleArrives}>
-        <CarFront className="size-4" />Vehicle at entry
+        <CarFront className="size-4" />
+        Vehicle at entry
       </Button>
       <Button size="sm" variant="secondary" onClick={actions.parkAssigned}>
-        <Car className="size-4" />Vehicle parks
+        <Car className="size-4" />
+        Vehicle parks
       </Button>
       <Button size="sm" variant="secondary" onClick={actions.triggerExit}>
-        <DoorOpen className="size-4" />Session ends & exit (60 s)
+        <DoorOpen className="size-4" />
+        Session ends & exit (60 s)
       </Button>
       {!compact && (
         <Button size="sm" variant="secondary" onClick={() => actions.leaveSlot()}>
@@ -48,7 +55,8 @@ export function DemoControls({ compact }: { compact?: boolean }) {
       )}
       {!compact && (
         <Button size="sm" variant="ghost" onClick={actions.reset}>
-          <RotateCcw className="size-4" />Reset
+          <RotateCcw className="size-4" />
+          Reset
         </Button>
       )}
       <label className="ml-auto flex items-center gap-2 text-xs text-muted-foreground">

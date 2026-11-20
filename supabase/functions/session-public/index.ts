@@ -22,7 +22,9 @@ Deno.serve(async (req) => {
   // Fetch session
   const { data: session, error } = await supabase
     .from("sessions")
-    .select("id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no")
+    .select(
+      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+    )
     .eq("code", code)
     .maybeSingle();
 
@@ -81,6 +83,6 @@ Deno.serve(async (req) => {
       price_per_hour: pricePerHour,
     },
     200,
-    corsHeaders
+    corsHeaders,
   );
 });

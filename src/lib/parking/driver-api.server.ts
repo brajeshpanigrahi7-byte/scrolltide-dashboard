@@ -18,8 +18,44 @@ function computeAmountPaise(durationMin: number, pricePerHour: number): number {
   return Math.ceil((durationMin / 60) * pricePerHour * 100);
 }
 
+// In-memory sliding rate limiter per IP
+const ipHits = new Map<string, { count: number; resetAt: number }>();
+
+export function checkRateLimit(ip: string, limit = 60, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const entry = ipHits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    ipHits.set(ip, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (entry.count >= limit) {
+    return false;
+  }
+  entry.count++;
+  return true;
+}
+
+export function resetRateLimits(): void {
+  ipHits.clear();
+}
+
+function getClientIp(request: Request): string {
+  const xfwd = request.headers.get("x-forwarded-for");
+  if (xfwd) return xfwd.split(",")[0].trim();
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+  const cfIp = request.headers.get("cf-connecting-ip");
+  if (cfIp) return cfIp.trim();
+  return "127.0.0.1";
+}
+
 // ─── GET /api/public/session-public?code=AB12CD ───
 export async function sessionPublic(request: Request): Promise<Response> {
+  const ip = getClientIp(request);
+  if (!checkRateLimit(ip, 60, 60_000)) {
+    return json({ error: "Too many requests. Please slow down." }, 429);
+  }
+
   const url = new URL(request.url);
   const code = url.searchParams.get("code")?.trim().toUpperCase();
 
@@ -29,7 +65,9 @@ export async function sessionPublic(request: Request): Promise<Response> {
 
   const { data: session, error } = await supabaseAdmin
     .from("sessions")
-    .select("id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no")
+    .select(
+      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+    )
     .eq("code", code)
     .maybeSingle();
 
@@ -70,7 +108,9 @@ export async function sessionPublic(request: Request): Promise<Response> {
 
   const amountInr = (session.amount_paise || 0) / 100;
 
+  // Only return non-sensitive fields for this specific session
   return json({
+    session_id: session.id,
     code: session.code,
     slot: session.slot,
     status,
@@ -86,8 +126,14 @@ export async function sessionPublic(request: Request): Promise<Response> {
 
 // ─── POST /api/public/create-order ───
 export async function createOrder(request: Request): Promise<Response> {
+  const ip = getClientIp(request);
+  if (!checkRateLimit(ip, 30, 60_000)) {
+    return json({ error: "Too many requests. Please slow down." }, 429);
+  }
+
   let body: {
     code?: string;
+    session_id?: string;
     duration_min?: number;
     kind?: "new" | "extend";
     vehicle_no?: string;
@@ -102,6 +148,7 @@ export async function createOrder(request: Request): Promise<Response> {
   }
 
   const code = body.code?.trim().toUpperCase();
+  const sessionId = body.session_id?.trim();
   const durationMin = Number(body.duration_min);
   const kind = body.kind || "new";
 
@@ -126,11 +173,12 @@ export async function createOrder(request: Request): Promise<Response> {
     return json({ error: `Duration must be one of: ${durationOptions.join(", ")}` }, 400);
   }
 
-  const { data: session, error: sessErr } = await supabaseAdmin
-    .from("sessions")
-    .select("*")
-    .eq("code", code)
-    .maybeSingle();
+  let query = supabaseAdmin.from("sessions").select("*").eq("code", code);
+  if (sessionId) {
+    query = query.eq("id", sessionId);
+  }
+
+  const { data: session, error: sessErr } = await query.maybeSingle();
 
   if (sessErr || !session) return json({ error: "Session not found" }, 404);
 
@@ -212,12 +260,17 @@ export async function createOrder(request: Request): Promise<Response> {
       currency: "INR",
       key_id: keyId,
     },
-    201
+    201,
   );
 }
 
 // ─── POST /api/public/verify-payment ───
 export async function verifyPayment(request: Request): Promise<Response> {
+  const ip = getClientIp(request);
+  if (!checkRateLimit(ip, 30, 60_000)) {
+    return json({ error: "Too many requests. Please slow down." }, 429);
+  }
+
   let body: {
     razorpay_order_id?: string;
     razorpay_payment_id?: string;
@@ -253,11 +306,15 @@ export async function verifyPayment(request: Request): Promise<Response> {
 
   const { data: payment } = await supabaseAdmin
     .from("payments")
-    .select("amount_paise")
+    .select("amount_paise, session_id")
     .eq("razorpay_order_id", orderId)
     .maybeSingle();
 
-  const amountPaise = payment?.amount_paise || 0;
+  if (!payment) {
+    return json({ error: "Order not found" }, 404);
+  }
+
+  const amountPaise = payment.amount_paise || 0;
   const result = await markPaidServer(orderId, paymentId, amountPaise);
 
   return json({ ok: true, result });
@@ -265,7 +322,12 @@ export async function verifyPayment(request: Request): Promise<Response> {
 
 // ─── POST /api/public/leave-now ───
 export async function leaveNow(request: Request): Promise<Response> {
-  let body: { code?: string };
+  const ip = getClientIp(request);
+  if (!checkRateLimit(ip, 20, 60_000)) {
+    return json({ error: "Too many requests. Please slow down." }, 429);
+  }
+
+  let body: { code?: string; session_id?: string };
   try {
     body = await request.json();
   } catch {
@@ -273,34 +335,46 @@ export async function leaveNow(request: Request): Promise<Response> {
   }
 
   const code = body.code?.trim().toUpperCase();
-  if (!code) return json({ error: "Missing code" }, 400);
+  const sessionId = body.session_id?.trim();
+
+  if (!code && !sessionId) return json({ error: "Missing code or session_id" }, 400);
 
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const nowIso = new Date().toISOString();
 
-  const { data: updated } = await supabaseAdmin
+  let query = supabaseAdmin
     .from("sessions")
     .update({ end_time: nowIso })
-    .eq("code", code)
     .eq("status", "active")
-    .select("id, slot")
-    .maybeSingle();
+    .select("id, slot");
 
-  if (!updated) {
+  if (code) query = query.eq("code", code);
+  if (sessionId) query = query.eq("id", sessionId);
+
+  const { data: updated, error } = await query.maybeSingle();
+
+  if (error || !updated) {
     return json({ error: "Active session not found" }, 404);
   }
 
-  await supabaseAdmin.from("activity_logs").insert({
-    type: "leave_now",
-    slot: updated.slot,
-    session_id: updated.id,
-    message: `Driver requested early exit for slot ${updated.slot}`,
-  });
+  try {
+    await supabaseAdmin.from("activity_logs").insert({
+      type: "leave_now",
+      slot: updated.slot,
+      session_id: updated.id,
+      message: `Driver requested early exit for slot ${updated.slot}`,
+    });
+  } catch {}
 
   return json({ ok: true });
 }
 
 export const leaveSession = leaveNow;
+
+export async function extendSession(request: Request): Promise<Response> {
+  // Extending a session must create a verified payment order
+  return createOrder(request);
+}
 
 export function publicOptions(): Response {
   return new Response(null, {

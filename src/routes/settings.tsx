@@ -20,12 +20,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { createAdminTestSession, adminCleanStaleSessions } from "@/lib/parking/admin.functions";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
       { title: "System Settings — ParkSense" },
-      { name: "description", content: "Device API, Razorpay configuration, pricing and system parameters for the ESP32 parking system." },
+      {
+        name: "description",
+        content:
+          "Device API, Razorpay configuration, pricing and system parameters for the ESP32 parking system.",
+      },
     ],
   }),
   component: SettingsPage,
@@ -74,7 +79,9 @@ function SettingsPage() {
       if (data) {
         if (data.price_per_hour != null) setPricePerHour(Number(data.price_per_hour));
         if (data.duration_options != null) {
-          const arr = Array.isArray(data.duration_options) ? data.duration_options : [30, 60, 120, 180, 240];
+          const arr = Array.isArray(data.duration_options)
+            ? data.duration_options
+            : [30, 60, 120, 180, 240];
           setDurationOptionsStr(arr.join(", "));
         }
         if (data.reminder_min != null) setReminderMin(data.reminder_min);
@@ -129,27 +136,16 @@ function SettingsPage() {
     setTestResult(null);
 
     try {
-      // Create session for slot 1
-      let res = await fetch("/api/public/device-session", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-device-key": "admin-test-override",
-        },
-        body: JSON.stringify({ device: "esp32-entry-1", slot: 1 }),
+      // Create session for slot 1 using authenticated admin server function
+      const data = await createAdminTestSession({
+        data: { device_id: "esp32-entry-1", slot: 1 },
       });
 
-      if (!res.ok) {
-        // Fallback to test-payment endpoint
-        res = await fetch("/api/test-payment", { method: "POST" });
-      }
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to create test session");
-
-      const targetUrl = data.pay_url || data.short_url;
+      const targetUrl = data.pay_url;
       setLastPayUrl(targetUrl);
-      setTestResult(`Created session ${data.session_id.slice(0, 8)}… code ${data.code}. Opening pay link…`);
+      setTestResult(
+        `Created session ${data.session_id.slice(0, 8)}… code ${data.code}. Opening pay link…`,
+      );
 
       if (targetUrl) {
         window.open(targetUrl, "_blank", "noopener,noreferrer");
@@ -165,8 +161,7 @@ function SettingsPage() {
     setCleaningStale(true);
     setCleanResult(null);
     try {
-      const res = await fetch("/api/public/clean-stale", { method: "POST" });
-      const data = await res.json();
+      const data = await adminCleanStaleSessions();
       setCleanResult(data.message || "Stale sessions cleaned.");
     } catch (e: any) {
       setCleanResult("Clean failed: " + e.message);
@@ -180,7 +175,8 @@ function SettingsPage() {
       {/* 1. Device API & Webhook URLs */}
       <Panel title="Hardware & Webhook Endpoints" className="lg:col-span-2">
         <p className="text-sm text-muted-foreground mb-4">
-          Connect your ESP32 microcontroller and Razorpay webhooks to these secure Supabase backend endpoints.
+          Connect your ESP32 microcontroller and Razorpay webhooks to these secure Supabase backend
+          endpoints.
         </p>
         <div className="grid gap-4 md:grid-cols-2">
           {/* Device API Base URL */}
@@ -195,7 +191,11 @@ function SettingsPage() {
                 className="h-7 text-xs flex items-center gap-1"
                 onClick={() => copyToClipboard(apiBaseUrl, "api")}
               >
-                {copiedApi ? <Check className="size-3.5 text-free" /> : <Copy className="size-3.5" />}
+                {copiedApi ? (
+                  <Check className="size-3.5 text-free" />
+                ) : (
+                  <Copy className="size-3.5" />
+                )}
                 {copiedApi ? "Copied" : "Copy"}
               </Button>
             </div>
@@ -219,7 +219,11 @@ function SettingsPage() {
                 className="h-7 text-xs flex items-center gap-1"
                 onClick={() => copyToClipboard(webhookUrl, "webhook")}
               >
-                {copiedWebhook ? <Check className="size-3.5 text-free" /> : <Copy className="size-3.5" />}
+                {copiedWebhook ? (
+                  <Check className="size-3.5 text-free" />
+                ) : (
+                  <Copy className="size-3.5" />
+                )}
                 {copiedWebhook ? "Copied" : "Copy"}
               </Button>
             </div>
@@ -227,8 +231,10 @@ function SettingsPage() {
               {webhookUrl}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Add in Razorpay Dashboard for <code className="text-foreground">payment.captured</code>,{" "}
-              <code className="text-foreground">order.paid</code>, <code className="text-foreground">payment.failed</code>.
+              Add in Razorpay Dashboard for{" "}
+              <code className="text-foreground">payment.captured</code>,{" "}
+              <code className="text-foreground">order.paid</code>,{" "}
+              <code className="text-foreground">payment.failed</code>.
             </p>
           </div>
         </div>
@@ -240,7 +246,9 @@ function SettingsPage() {
           <div className="flex items-center justify-between border-b border-border pb-3">
             <div>
               <p className="text-sm font-medium">Razorpay Mode</p>
-              <p className="text-xs text-muted-foreground">Derived from key prefix (secrets kept secure)</p>
+              <p className="text-xs text-muted-foreground">
+                Derived from key prefix (secrets kept secure)
+              </p>
             </div>
             <Pill t="free">Test Mode (rzp_test_)</Pill>
           </div>
@@ -248,7 +256,9 @@ function SettingsPage() {
           <div className="flex items-center justify-between border-b border-border pb-3">
             <div>
               <p className="text-sm font-medium">Device Key Auth</p>
-              <p className="text-xs text-muted-foreground">ESP32 header x-device-key verification</p>
+              <p className="text-xs text-muted-foreground">
+                ESP32 header x-device-key verification
+              </p>
             </div>
             <Pill t="primary">
               <ShieldCheck className="size-3 mr-1" /> Active
@@ -259,10 +269,18 @@ function SettingsPage() {
             <p className="font-semibold text-foreground">Razorpay Dashboard Setup:</p>
             <ol className="list-decimal pl-4 space-y-0.5">
               <li>Go to Razorpay Dashboard → Settings → Webhooks</li>
-              <li>Click <b>Add New Webhook</b> and paste the Webhook URL above</li>
-              <li>Select events: <b>payment.captured</b>, <b>order.paid</b>, <b>payment.failed</b></li>
-              <li>Ensure Secret matches your <b>RAZORPAY_WEBHOOK_SECRET</b></li>
-              <li>Ensure Payment Capture is set to <b>Automatic</b></li>
+              <li>
+                Click <b>Add New Webhook</b> and paste the Webhook URL above
+              </li>
+              <li>
+                Select events: <b>payment.captured</b>, <b>order.paid</b>, <b>payment.failed</b>
+              </li>
+              <li>
+                Ensure Secret matches your <b>RAZORPAY_WEBHOOK_SECRET</b>
+              </li>
+              <li>
+                Ensure Payment Capture is set to <b>Automatic</b>
+              </li>
             </ol>
           </div>
         </div>
@@ -271,11 +289,20 @@ function SettingsPage() {
       {/* 3. Razorpay Test Payment & Session Repair */}
       <Panel title="Razorpay Test Payment & Session Repair">
         <p className="text-sm text-muted-foreground mb-4">
-          Creates a real ₹20 parking session (Slot 1, 30 min duration), opens the Razorpay pay link, and offers 1-click database repair for stale sessions.
+          Creates a real ₹20 parking session (Slot 1, 30 min duration), opens the Razorpay pay link,
+          and offers 1-click database repair for stale sessions.
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <Button onClick={handleTestPayment} disabled={testLoading} className="flex items-center gap-2">
-            {testLoading ? <RefreshCw className="size-4 animate-spin" /> : <CreditCard className="size-4" />}
+          <Button
+            onClick={handleTestPayment}
+            disabled={testLoading}
+            className="flex items-center gap-2"
+          >
+            {testLoading ? (
+              <RefreshCw className="size-4 animate-spin" />
+            ) : (
+              <CreditCard className="size-4" />
+            )}
             Test payment (₹20)
           </Button>
           {lastPayUrl && (
@@ -291,7 +318,11 @@ function SettingsPage() {
             disabled={cleaningStale}
             className="flex items-center gap-2 text-xs"
           >
-            {cleaningStale ? <RefreshCw className="size-3.5 animate-spin" /> : <Check className="size-3.5 text-free" />}
+            {cleaningStale ? (
+              <RefreshCw className="size-3.5 animate-spin" />
+            ) : (
+              <Check className="size-3.5 text-free" />
+            )}
             Clean Stale Sessions & Free Slots
           </Button>
         </div>
@@ -346,7 +377,9 @@ function SettingsPage() {
           </div>
 
           <div>
-            <Label className="text-xs text-muted-foreground">Duration Options (minutes, comma-separated)</Label>
+            <Label className="text-xs text-muted-foreground">
+              Duration Options (minutes, comma-separated)
+            </Label>
             <Input
               type="text"
               value={durationOptionsStr}
@@ -361,10 +394,18 @@ function SettingsPage() {
               disabled={savingSettings}
               className="flex items-center gap-2 text-xs"
             >
-              {savingSettings ? <RefreshCw className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+              {savingSettings ? (
+                <RefreshCw className="size-3.5 animate-spin" />
+              ) : (
+                <Save className="size-3.5" />
+              )}
               Save System Settings
             </Button>
-            {saveSuccess && <span className="text-xs text-emerald-400 font-medium">Settings saved to database!</span>}
+            {saveSuccess && (
+              <span className="text-xs text-emerald-400 font-medium">
+                Settings saved to database!
+              </span>
+            )}
           </div>
         </div>
       </Panel>

@@ -1,4 +1,7 @@
-export function constantTimeCompare(a: string | null | undefined, b: string | null | undefined): boolean {
+export function constantTimeCompare(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
   if (typeof a !== "string" || typeof b !== "string") return false;
   if (a.length !== b.length) return false;
   let mismatch = 0;
@@ -15,7 +18,7 @@ export async function hmacSha256Hex(message: string, secret: string): Promise<st
     enc.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign"]
+    ["sign"],
   );
   const signature = await crypto.subtle.sign("HMAC", key, enc.encode(message));
   const bytes = new Uint8Array(signature);

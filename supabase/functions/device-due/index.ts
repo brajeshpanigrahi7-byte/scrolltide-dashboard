@@ -51,7 +51,12 @@ Deno.serve(async (req) => {
         .eq("status", "active")
         .lte("end_time", nowIso);
 
-      if (!expErr && expiredSessions && Array.isArray(expiredSessions) && expiredSessions.length > 0) {
+      if (
+        !expErr &&
+        expiredSessions &&
+        Array.isArray(expiredSessions) &&
+        expiredSessions.length > 0
+      ) {
         for (const exp of expiredSessions) {
           const shouldSignalExit = !exp.exit_signalled_at;
           await supabase
@@ -118,7 +123,9 @@ Deno.serve(async (req) => {
     // Update devices.exit_open
     if (exitOpen) {
       try {
-        await supabase.from("devices").upsert({ id: device, exit_open: true }, { onConflict: "id" });
+        await supabase
+          .from("devices")
+          .upsert({ id: device, exit_open: true }, { onConflict: "id" });
       } catch (e) {
         console.warn("Error updating devices exit_open:", e);
       }
@@ -142,10 +149,7 @@ Deno.serve(async (req) => {
           }
 
           if (!ws.reminder_sent) {
-            await supabase
-              .from("sessions")
-              .update({ reminder_sent: true })
-              .eq("id", ws.id);
+            await supabase.from("sessions").update({ reminder_sent: true }).eq("id", ws.id);
 
             try {
               await supabase.from("activity_logs").insert({
@@ -172,7 +176,7 @@ Deno.serve(async (req) => {
         warn_slots: warnSlots,
       },
       200,
-      corsHeaders
+      corsHeaders,
     );
   } catch (err) {
     console.error("Critical error in device-due:", err);
@@ -182,7 +186,7 @@ Deno.serve(async (req) => {
         warn_slots: [],
       },
       200,
-      corsHeaders
+      corsHeaders,
     );
   }
 });

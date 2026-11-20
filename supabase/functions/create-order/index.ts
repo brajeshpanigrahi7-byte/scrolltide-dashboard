@@ -30,7 +30,11 @@ Deno.serve(async (req) => {
   const kind = body.kind || "new";
 
   if (!code || !durationMin) {
-    return jsonResponse({ error: "Missing required fields: code and duration_min" }, 400, corsHeaders);
+    return jsonResponse(
+      { error: "Missing required fields: code and duration_min" },
+      400,
+      corsHeaders,
+    );
   }
 
   if (kind !== "new" && kind !== "extend") {
@@ -52,7 +56,11 @@ Deno.serve(async (req) => {
     : [30, 60, 120, 180, 240];
 
   if (!durationOptions.includes(durationMin)) {
-    return jsonResponse({ error: `Invalid duration. Must be one of: ${durationOptions.join(", ")}` }, 400, corsHeaders);
+    return jsonResponse(
+      { error: `Invalid duration. Must be one of: ${durationOptions.join(", ")}` },
+      400,
+      corsHeaders,
+    );
   }
 
   // 2. Fetch session
@@ -70,7 +78,11 @@ Deno.serve(async (req) => {
 
   if (kind === "new") {
     if (session.status !== "pending") {
-      return jsonResponse({ error: `Session is not pending (status: ${session.status})` }, 400, corsHeaders);
+      return jsonResponse(
+        { error: `Session is not pending (status: ${session.status})` },
+        400,
+        corsHeaders,
+      );
     }
     const expiresAt = new Date(session.expires_at).getTime();
     if (now > expiresAt) {
@@ -129,7 +141,11 @@ Deno.serve(async (req) => {
   const orderData = await rzpRes.json();
   if (!rzpRes.ok || !orderData.id) {
     console.error("Razorpay order creation failed:", orderData);
-    return jsonResponse({ error: orderData.error?.description || "Failed to create Razorpay order" }, 502, corsHeaders);
+    return jsonResponse(
+      { error: orderData.error?.description || "Failed to create Razorpay order" },
+      502,
+      corsHeaders,
+    );
   }
 
   // 5. Insert payments row
@@ -154,6 +170,6 @@ Deno.serve(async (req) => {
       key_id: keyId,
     },
     201,
-    corsHeaders
+    corsHeaders,
   );
 });

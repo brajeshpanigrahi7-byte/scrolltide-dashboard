@@ -13,7 +13,11 @@ export function computeAmountPaise(durationMin: number, pricePerHour: number): n
   return Math.ceil((durationMin / 60) * pricePerHour * 100);
 }
 
-export function jsonResponse(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
+export function jsonResponse(
+  data: unknown,
+  status = 200,
+  extraHeaders: Record<string, string> = {},
+): Response {
   // ESP32 requires flat, compact JSON: no spaces, no indentation
   return new Response(JSON.stringify(data), {
     status,

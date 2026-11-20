@@ -12,7 +12,10 @@ export const Route = createFileRoute("/exit")({
   head: () => ({
     meta: [
       { title: "Exit Management — ParkSense" },
-      { name: "description", content: "Session expiry, active parking sessions and 60-second exit barrier control." },
+      {
+        name: "description",
+        content: "Session expiry, active parking sessions and 60-second exit barrier control.",
+      },
     ],
   }),
   component: Exit,
@@ -42,7 +45,10 @@ export function Exit() {
 
         if (error) {
           // If direct insert encounters RLS policy violation, fallback to server action
-          console.warn("Direct insert to device_commands failed, using openExitGate fallback:", error);
+          console.warn(
+            "Direct insert to device_commands failed, using openExitGate fallback:",
+            error,
+          );
           try {
             const serverRes = await openExitGate({ data: { device_id: "esp32-entry-1" } });
             if (!serverRes?.ok) {
@@ -85,7 +91,8 @@ export function Exit() {
       <div className="rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground flex items-center justify-between flex-wrap gap-2">
         <div>
           Exit is automatically authorized when a session expires. The backend signals the ESP32 via{" "}
-          <code className="text-xs font-mono text-primary">/device-due</code>, opening the exit barrier for 60 seconds.
+          <code className="text-xs font-mono text-primary">/device-due</code>, opening the exit
+          barrier for 60 seconds.
         </div>
         <Button
           onClick={handleOpenExitGateNow}
@@ -93,7 +100,11 @@ export function Exit() {
           variant="outline"
           className="border-primary/50 text-primary hover:bg-primary/20 text-xs font-semibold flex items-center gap-1.5"
         >
-          {openingGate ? <RefreshCw className="size-3.5 animate-spin" /> : <DoorOpen className="size-3.5" />}
+          {openingGate ? (
+            <RefreshCw className="size-3.5 animate-spin" />
+          ) : (
+            <DoorOpen className="size-3.5" />
+          )}
           Open Exit Gate Now (Admin)
         </Button>
       </div>
@@ -118,7 +129,11 @@ export function Exit() {
             <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
               <div
                 className="h-full bg-free transition-all duration-300"
-                style={{ width: isExitGateOpen ? `${(remain / (TIMING.exitOpenMs / 1000)) * 100 || 100}%` : "0%" }}
+                style={{
+                  width: isExitGateOpen
+                    ? `${(remain / (TIMING.exitOpenMs / 1000)) * 100 || 100}%`
+                    : "0%",
+                }}
               />
             </div>
           </div>
@@ -170,7 +185,9 @@ export function Exit() {
       {/* Active Sessions & Expirations */}
       <Panel title="Active Parking Sessions (Vehicles Inside)">
         {activeSessions.length === 0 ? (
-          <p className="py-8 text-center text-sm text-muted-foreground">No active parked vehicles at the moment.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">
+            No active parked vehicles at the moment.
+          </p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {activeSessions.map((sess: any) => (

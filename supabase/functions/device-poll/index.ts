@@ -44,10 +44,7 @@ Deno.serve(async (req) => {
     const expiresAt = new Date(session.expires_at).getTime();
     if (Date.now() > expiresAt) {
       status = "expired";
-      await supabase
-        .from("sessions")
-        .update({ status: "expired" })
-        .eq("id", sessionId);
+      await supabase.from("sessions").update({ status: "expired" }).eq("id", sessionId);
 
       await supabase.from("activity_logs").insert({
         type: "session_expired",
@@ -70,6 +67,6 @@ Deno.serve(async (req) => {
       duration_min: reportedStatus === "paid" ? durationMin : 0,
     },
     200,
-    corsHeaders
+    corsHeaders,
   );
 });

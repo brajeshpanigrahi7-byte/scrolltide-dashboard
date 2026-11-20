@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { deviceSession, devicePoll, deviceEvent, deviceDue } from "@/lib/parking/device-api.server";
+import {
+  deviceSession,
+  devicePoll,
+  deviceEvent,
+  deviceDue,
+  deviceHealth,
+  setTestDbClient,
+  resetDbClient,
+} from "@/lib/parking/device-api.server";
 import { sessionPublic, createOrder, verifyPayment } from "@/lib/parking/driver-api.server";
 import { createHmac } from "node:crypto";
 
@@ -97,7 +105,9 @@ vi.mock("@/integrations/supabase/client.server", () => ({
         },
         upsert: async (data: any) => {
           const row = Array.isArray(data) ? data[0] : data;
-          const idx = (mockDb as any)[table]?.findIndex((r: any) => r.id === row.id || r.slot === row.slot);
+          const idx = (mockDb as any)[table]?.findIndex(
+            (r: any) => r.id === row.id || r.slot === row.slot,
+          );
           if (idx >= 0) {
             Object.assign((mockDb as any)[table][idx], row);
           } else {
@@ -117,6 +127,9 @@ vi.mock("@/integrations/supabase/client.server", () => ({
 }));
 
 beforeEach(() => {
+  resetDbClient();
+  vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key-123");
   vi.stubEnv("DEVICE_API_KEY", "test-device-secret-123");
   vi.stubEnv("PUBLIC_APP_URL", "https://scrolltide-dashboard.lovable.app");
   vi.stubEnv("RAZORPAY_KEY_ID", "rzp_test_fixture");
@@ -148,6 +161,19 @@ describe("ESP32 Device API Endpoints", () => {
     const req = new Request("https://example.com/device-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device: "esp32-entry-1", slot: 1 }),
+    });
+    const res = await deviceSession(req);
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects admin-test-override with 401 Unauthorized", async () => {
+    const req = new Request("https://example.com/device-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-device-key": "admin-test-override",
+      },
       body: JSON.stringify({ device: "esp32-entry-1", slot: 1 }),
     });
     const res = await deviceSession(req);
@@ -421,6 +447,73 @@ describe("ESP32 Device API Endpoints", () => {
     expect(mockDb.devices[0].id).toBe("esp32-entry-1");
     expect(mockDb.devices[0].rssi).toBe(-61);
     expect(mockDb.devices[0].entry_state).toBe(0);
+    expect(mockDb.devices[0].last_seen).toBeDefined();
+  });
+
+  it("POST /device-event returns 500 when database upsert fails", async () => {
+    // Create a mock failing DB client
+    const failingDb = {
+      from: () => ({
+        upsert: async () => ({ data: null, error: new Error("DB connection failure") }),
+      }),
+    };
+    setTestDbClient(failingDb);
+
+    try {
+      const req = new Request("https://example.com/device-event", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-device-key": "test-device-secret-123",
+        },
+        body: JSON.stringify({
+          device: "esp32-entry-1",
+          event: "heartbeat",
+          rssi: -50,
+        }),
+      });
+
+      const res = await deviceEvent(req);
+      expect(res.status).toBe(500);
+      const data = await res.json();
+      expect(data.error).toBe("DB connection failure");
+    } finally {
+      resetDbClient();
+    }
+  });
+
+  it("GET /device-health returns 200 with safe status when authorized", async () => {
+    vi.stubEnv("SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "secret-role-key");
+
+    mockDb.devices = [
+      {
+        id: "esp32-entry-1",
+        last_seen: new Date(Date.now() - 5000).toISOString(),
+      },
+    ];
+
+    const req = new Request("https://example.com/device-health?device=esp32-entry-1", {
+      headers: { "x-device-key": "test-device-secret-123" },
+    });
+
+    const res = await deviceHealth(req);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.db_admin_configured).toBe(true);
+    expect(data.device_key_configured).toBe(true);
+    expect(data.device_row).toBeDefined();
+    expect(data.device_row.id).toBe("esp32-entry-1");
+    expect(data.device_row.age_s).toBeGreaterThanOrEqual(4);
+  });
+
+  it("GET /device-health rejects unauthorized request with 401", async () => {
+    const req = new Request("https://example.com/device-health?device=esp32-entry-1", {
+      headers: { "x-device-key": "wrong-key" },
+    });
+
+    const res = await deviceHealth(req);
+    expect(res.status).toBe(401);
   });
 
   it("GET /device-due signals exit and returns warn_slots", async () => {
