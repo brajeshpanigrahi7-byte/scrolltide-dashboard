@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnalyticsRouteImport } from './routes/analytics'
 import { Route as EntryRouteImport } from './routes/entry'
 import { Route as ExitRouteImport } from './routes/exit'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as LogsRouteImport } from './routes/logs'
 import { Route as ParkingRouteImport } from './routes/parking'
 import { Route as SensorsRouteImport } from './routes/sensors'
@@ -54,6 +55,11 @@ const EntryRoute = EntryRouteImport.update({
 const ExitRoute = ExitRouteImport.update({
   id: '/exit',
   path: '/exit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LogsRoute = LogsRouteImport.update({
@@ -173,6 +179,7 @@ export interface FileRoutesByFullPath {
   '/analytics': typeof AnalyticsRoute
   '/entry': typeof EntryRoute
   '/exit': typeof ExitRoute
+  '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/parking': typeof ParkingRoute
   '/sensors': typeof SensorsRoute
@@ -201,6 +208,7 @@ export interface FileRoutesByTo {
   '/analytics': typeof AnalyticsRoute
   '/entry': typeof EntryRoute
   '/exit': typeof ExitRoute
+  '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/parking': typeof ParkingRoute
   '/sensors': typeof SensorsRoute
@@ -230,6 +238,7 @@ export interface FileRoutesById {
   '/analytics': typeof AnalyticsRoute
   '/entry': typeof EntryRoute
   '/exit': typeof ExitRoute
+  '/login': typeof LoginRoute
   '/logs': typeof LogsRoute
   '/parking': typeof ParkingRoute
   '/sensors': typeof SensorsRoute
@@ -260,6 +269,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/entry'
     | '/exit'
+    | '/login'
     | '/logs'
     | '/parking'
     | '/sensors'
@@ -288,6 +298,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/entry'
     | '/exit'
+    | '/login'
     | '/logs'
     | '/parking'
     | '/sensors'
@@ -316,6 +327,7 @@ export interface FileRouteTypes {
     | '/analytics'
     | '/entry'
     | '/exit'
+    | '/login'
     | '/logs'
     | '/parking'
     | '/sensors'
@@ -345,6 +357,7 @@ export interface RootRouteChildren {
   AnalyticsRoute: typeof AnalyticsRoute
   EntryRoute: typeof EntryRoute
   ExitRoute: typeof ExitRoute
+  LoginRoute: typeof LoginRoute
   LogsRoute: typeof LogsRoute
   ParkingRoute: typeof ParkingRoute
   SensorsRoute: typeof SensorsRoute
@@ -397,6 +410,13 @@ declare module '@tanstack/react-router' {
       path: '/exit'
       fullPath: '/exit'
       preLoaderRoute: typeof ExitRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/logs': {
@@ -561,6 +581,7 @@ const rootRouteChildren: RootRouteChildren = {
   AnalyticsRoute: AnalyticsRoute,
   EntryRoute: EntryRoute,
   ExitRoute: ExitRoute,
+  LoginRoute: LoginRoute,
   LogsRoute: LogsRoute,
   ParkingRoute: ParkingRoute,
   SensorsRoute: SensorsRoute,

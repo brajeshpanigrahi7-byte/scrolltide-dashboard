@@ -43,19 +43,16 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Invalid signature" }, 400, corsHeaders);
   }
 
-  const supabase = getSupabaseAdmin();
-
-  // Find payment to get expected amount
-  const { data: payment } = await supabase
-    .from("payments")
-    .select("amount_paise")
-    .eq("razorpay_order_id", orderId)
-    .maybeSingle();
-
-  const amountPaise = payment?.amount_paise || 0;
-
-  // Run shared idempotent markPaid
-  const result = await markPaid(supabase, orderId, paymentId, amountPaise);
-
-  return jsonResponse({ ok: true, result }, 200, corsHeaders);
+  // NOTE: Parking access activation is moved out of client-facing payment screen.
+  // Access is triggered exclusively via verified server-side payment webhooks (Razorpay/Stripe).
+  // verifyPayment confirms cryptographic signature validity without granting access directly.
+  return jsonResponse(
+    {
+      ok: true,
+      verified: true,
+      message: "Signature verified. Parking access activation is processed via server webhook.",
+    },
+    200,
+    corsHeaders,
+  );
 });

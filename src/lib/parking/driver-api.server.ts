@@ -121,7 +121,7 @@ export async function sessionPublic(request: Request): Promise<Response> {
   const { data: session, error } = await supabaseAdmin
     .from("sessions")
     .select(
-      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
     )
     .eq("code", code)
     .maybeSingle();
@@ -163,7 +163,17 @@ export async function sessionPublic(request: Request): Promise<Response> {
 
   const amountInr = (session.amount_paise || 0) / 100;
 
-  // Only return non-sensitive fields for this specific session
+  // Determine whether the caller is the session owner or an admin.
+  // Unauthenticated callers (drivers scanning QR) can still access
+  // non-sensitive session data, but vehicle_no is stripped for privacy.
+  const authUser = await getAuthenticatedUser(request);
+  const isOwner = authUser?.id != null && session.user_id === authUser.id;
+  const isAdmin = authUser?.id != null && !isOwner ? await isUserAdmin(authUser.id) : false;
+  const canSeePrivateFields = isOwner || isAdmin;
+
+  // Only return non-sensitive fields for this specific session.
+  // contact_email and contact_phone are NEVER returned in public responses.
+  // vehicle_no is only returned to authenticated session owners or admins.
   return json({
     session_id: session.id,
     code: session.code,
@@ -173,7 +183,7 @@ export async function sessionPublic(request: Request): Promise<Response> {
     seconds_remaining: secondsRemaining,
     amount: amountInr,
     expires_in: expiresInSeconds,
-    vehicle_no: session.vehicle_no || null,
+    vehicle_no: canSeePrivateFields ? (session.vehicle_no || null) : undefined,
     price_options: priceOptions,
     price_per_hour: pricePerHour,
   });
@@ -243,8 +253,9 @@ export async function createOrder(request: Request): Promise<Response> {
 
   if (sessErr || !session) return json({ error: "Session not found" }, 404);
 
-  // If session already has an owner, verify caller is owner or admin
-  if (session.user_id && session.user_id !== authUser.id) {
+  // If session already has an owner, verify caller is owner or admin.
+  // If session.user_id is null (first-time claim), allow any authenticated user to claim it.
+  if (session.user_id != null && session.user_id !== authUser.id) {
     const isAdmin = await isUserAdmin(authUser.id);
     if (!isAdmin) {
       return json({ error: "Unauthorized: Session belongs to another user" }, 403);
@@ -336,6 +347,11 @@ export async function createOrder(request: Request): Promise<Response> {
 }
 
 // ─── POST /api/public/verify-payment ───
+// LOCKED DOWN: Submitting payment parameters from the browser cannot mark
+// a session paid or open the barrier. Parking access activation is triggered
+// exclusively via verified server-side payment webhooks (Razorpay / Stripe).
+// This function verifies cryptographic signature validity for caller status feedback
+// without granting access or modifying session status.
 export async function verifyPayment(request: Request): Promise<Response> {
   const ip = getClientIp(request);
   if (!checkRateLimit(ip, 30, 60_000)) {

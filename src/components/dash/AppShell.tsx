@@ -9,6 +9,7 @@ import {
   GitBranch,
   LayoutDashboard,
   LogIn,
+  LogOut,
   Menu,
   ParkingSquare,
   Radar,
@@ -18,7 +19,9 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useParking } from "@/lib/parking/store";
+import { useAuth } from "@/lib/auth-context";
 import { Dot, Pill } from "./kit";
+import { SignInDialog } from "./SignInDialog";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
@@ -38,7 +41,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (r) => r.location.pathname });
   useEffect(() => setMobileOpen(false), [path]);
 
-  if (path.startsWith("/p/")) {
+  if (path.startsWith("/p/") || path === "/login") {
     return <div className="min-h-screen bg-background text-foreground">{children}</div>;
   }
 
@@ -134,6 +137,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
 function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
   const { state, mode, setDemoMode, liveError } = useParking();
+  const { user, signOut, signInModalOpen, setSignInModalOpen, openSignInModal } = useAuth();
   const [clock, setClock] = useState<Date | null>(null);
   useEffect(() => {
     setClock(new Date());
@@ -161,38 +165,55 @@ function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
           <span className="font-semibold capitalize text-foreground">{mode}</span>
         </button>
 
+        {/* ESP32 hardware status — based solely on state.online */}
         <span
           title={
-            state.authRequired
-              ? "Sign in with an admin account to view live hardware status"
-              : state.online
-                ? "ESP32 active & communicating"
-                : "Heartbeat timeout (no telemetry in last 30 s)"
+            state.online
+              ? "ESP32 active & communicating"
+              : "Heartbeat timeout (no telemetry in last 30 s)"
           }
         >
-          <Pill
-            t={state.authRequired ? "warning" : state.online ? "free" : "error"}
-            pulse={state.online && !state.authRequired}
-          >
-            {state.authRequired
-              ? "SIGN IN REQUIRED"
-              : state.online
-                ? mode === "demo"
-                  ? "DEVICE ONLINE (DEMO)"
-                  : "DEVICE ONLINE"
-                : "DEVICE OFFLINE"}
+          <Pill t={state.online ? "free" : "error"} pulse={state.online}>
+            {state.online
+              ? mode === "demo"
+                ? "DEVICE ONLINE (DEMO)"
+                : "DEVICE ONLINE"
+              : "DEVICE OFFLINE"}
           </Pill>
         </span>
         <span
           className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex"
           title="ESP32 heartbeat"
         >
-          <Dot
-            t={state.authRequired ? "warning" : state.online ? "free" : "error"}
-            pulse={state.online && !state.authRequired}
-          />{" "}
-          ESP32 {state.authRequired ? "auth required" : state.online ? "online" : "offline"}
+          <Dot t={state.online ? "free" : "error"} pulse={state.online} />{" "}
+          ESP32 {state.online ? "online" : "offline"}
         </span>
+
+        {/* User auth badge */}
+        {user ? (
+          <div className="flex items-center gap-2">
+            <span className="hidden text-xs text-muted-foreground md:block">
+              {user.email}
+            </span>
+            <button
+              onClick={() => signOut()}
+              title="Sign out"
+              className="flex items-center gap-1 rounded-full border border-border/80 bg-background/60 px-2.5 py-1 text-xs transition-colors hover:border-destructive/50 hover:bg-destructive/10"
+            >
+              <LogOut className="size-3" />
+              <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={openSignInModal}
+            title="Click to sign in"
+            className="transition-transform active:scale-95"
+          >
+            <Pill t="warning">SIGN IN REQUIRED</Pill>
+          </button>
+        )}
+
         <span
           className="hidden font-mono text-xs text-muted-foreground md:block"
           title="Asia/Kolkata (IST)"
@@ -235,6 +256,8 @@ function TopBar({ onMenu, title }: { onMenu: () => void; title: string }) {
           )}
         </div>
       </div>
+
+      <SignInDialog open={signInModalOpen} onOpenChange={setSignInModalOpen} />
     </header>
   );
 }

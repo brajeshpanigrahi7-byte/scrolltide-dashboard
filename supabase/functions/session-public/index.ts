@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
   const { data: session, error } = await supabase
     .from("sessions")
     .select(
-      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
     )
     .eq("code", code)
     .maybeSingle();
@@ -31,6 +31,13 @@ Deno.serve(async (req) => {
   if (error || !session) {
     return jsonResponse({ error: "Session not found" }, 404, corsHeaders);
   }
+
+  // Determine whether caller is owner or admin
+  const { getAuthenticatedUser, isUserAdmin } = await import("../_shared/supabase.ts");
+  const authUser = await getAuthenticatedUser(req);
+  const isOwner = authUser?.id != null && session.user_id === authUser.id;
+  const isAdmin = authUser?.id != null && !isOwner ? await isUserAdmin(authUser.id) : false;
+  const canSeePrivateFields = isOwner || isAdmin;
 
   // Fetch settings for pricing and options
   const { data: settings } = await supabase
@@ -78,7 +85,7 @@ Deno.serve(async (req) => {
       seconds_remaining: secondsRemaining,
       amount: amountInr,
       expires_in: expiresInSeconds,
-      vehicle_no: session.vehicle_no || null,
+      vehicle_no: canSeePrivateFields ? (session.vehicle_no || null) : undefined,
       price_options: priceOptions,
       price_per_hour: pricePerHour,
     },

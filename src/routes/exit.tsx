@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { GateVisual, LogList, Oled, Panel, Pill, fmtTime } from "@/components/dash/kit";
 import { supabase } from "@/integrations/supabase/client";
 import { openExitGate } from "@/lib/parking/admin.functions";
+import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/exit")({
   head: () => ({
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/exit")({
 
 export function Exit() {
   const { state: s, mode, actions } = useParking();
+  const { user, openSignInModal } = useAuth();
   const [openingGate, setOpeningGate] = useState(false);
   const [gateMsg, setGateMsg] = useState<string | null>(null);
 
@@ -30,6 +32,12 @@ export function Exit() {
   const remain = s.exitCloseAt ? Math.max(0, (s.exitCloseAt - s.now) / 1000) : 0;
 
   const handleOpenExitGateNow = async () => {
+    if (mode === "live" && !user) {
+      openSignInModal();
+      setGateMsg("Admin sign-in required to open exit gate in live mode.");
+      return;
+    }
+
     setOpeningGate(true);
     setGateMsg(null);
     try {

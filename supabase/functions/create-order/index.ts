@@ -1,6 +1,30 @@
 import { corsHeaders, handleCors } from "../_shared/cors.ts";
-import { getSupabaseAdmin } from "../_shared/supabase.ts";
+import { getSupabaseAdmin, getAuthenticatedUser, isUserAdmin } from "../_shared/supabase.ts";
 import { computeAmountPaise, jsonResponse } from "../_shared/utils.ts";
+
+const ipHits = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string, limit = 30, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const entry = ipHits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    ipHits.set(ip, { count: 1, resetAt: now + windowMs });
+    return true;
+  }
+  if (entry.count >= limit) return false;
+  entry.count++;
+  return true;
+}
+
+function getClientIp(req: Request): string {
+  const xfwd = req.headers.get("x-forwarded-for");
+  if (xfwd) return xfwd.split(",")[0].trim();
+  const realIp = req.headers.get("x-real-ip");
+  if (realIp) return realIp.trim();
+  const cfIp = req.headers.get("cf-connecting-ip");
+  if (cfIp) return cfIp.trim();
+  return "127.0.0.1";
+}
 
 Deno.serve(async (req) => {
   const cors = handleCors(req);
@@ -8,6 +32,21 @@ Deno.serve(async (req) => {
 
   if (req.method !== "POST") {
     return jsonResponse({ error: "Method not allowed" }, 405, corsHeaders);
+  }
+
+  const ip = getClientIp(req);
+  if (!checkRateLimit(ip, 30, 60_000)) {
+    return jsonResponse({ error: "Too many requests. Please slow down." }, 429, corsHeaders);
+  }
+
+  // Require valid user authentication before creating parking payment sessions
+  const authUser = await getAuthenticatedUser(req);
+  if (!authUser?.id) {
+    return jsonResponse(
+      { error: "Authentication required to create a payment session" },
+      401,
+      corsHeaders,
+    );
   }
 
   let body: {
@@ -74,6 +113,18 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Session not found" }, 404, corsHeaders);
   }
 
+  // Ownership verification: if session already has an owner, verify caller is owner or admin
+  if (session.user_id != null && session.user_id !== authUser.id) {
+    const isAdmin = await isUserAdmin(authUser.id);
+    if (!isAdmin) {
+      return jsonResponse(
+        { error: "Unauthorized: Session belongs to another user" },
+        403,
+        corsHeaders,
+      );
+    }
+  }
+
   const now = Date.now();
 
   if (kind === "new") {
@@ -90,14 +141,14 @@ Deno.serve(async (req) => {
       return jsonResponse({ error: "Session has expired" }, 400, corsHeaders);
     }
 
-    // Save optional vehicle_no, contact_email, contact_phone
-    const sessionUpdates: Record<string, unknown> = {};
+    // Save user_id ownership and optional vehicle_no, contact_email, contact_phone
+    const sessionUpdates: Record<string, unknown> = {
+      user_id: authUser.id,
+    };
     if (body.vehicle_no) sessionUpdates.vehicle_no = body.vehicle_no.trim();
     if (body.contact_email) sessionUpdates.contact_email = body.contact_email.trim();
     if (body.contact_phone) sessionUpdates.contact_phone = body.contact_phone.trim();
-    if (Object.keys(sessionUpdates).length > 0) {
-      await supabase.from("sessions").update(sessionUpdates).eq("id", session.id);
-    }
+    await supabase.from("sessions").update(sessionUpdates).eq("id", session.id);
   } else if (kind === "extend") {
     if (session.status !== "active") {
       return jsonResponse({ error: "Only active sessions can be extended" }, 400, corsHeaders);
@@ -131,6 +182,7 @@ Deno.serve(async (req) => {
       receipt: code,
       notes: {
         session_id: session.id,
+        user_id: authUser.id,
         code: code,
         kind: kind,
         duration_min: String(durationMin),
@@ -148,9 +200,10 @@ Deno.serve(async (req) => {
     );
   }
 
-  // 5. Insert payments row
+  // 5. Insert payments row with user_id
   const { error: payErr } = await supabase.from("payments").insert({
     session_id: session.id,
+    user_id: authUser.id,
     razorpay_order_id: orderData.id,
     amount_paise: amountPaise,
     kind: kind,

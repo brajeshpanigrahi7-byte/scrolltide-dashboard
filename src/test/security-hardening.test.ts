@@ -2,7 +2,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { assertAdmin } from "@/lib/parking/admin.functions";
 import { markPaidServer, razorpayWebhook, stripeWebhook } from "@/lib/parking/payment-api.server";
-import { verifyPayment, createOrder, leaveNow } from "@/lib/parking/driver-api.server";
+import { verifyPayment, createOrder, leaveNow, sessionPublic, resetRateLimits } from "@/lib/parking/driver-api.server";
 import { generateCode } from "@/lib/parking/payments";
 import { createHmac } from "node:crypto";
 
@@ -529,6 +529,90 @@ describe("Job B Security Hardening", () => {
       expect(res.status).toBe(401);
       const data = await res.json();
       expect(data.error).toBe("Invalid signature");
+    });
+  });
+
+  describe("Requirement 5 & 7: Ownership Verification & Contact Detail Protection", () => {
+    beforeEach(() => {
+      resetRateLimits();
+    });
+
+    it("sessionPublic strips vehicle_no and hides contact details from unauthenticated callers", async () => {
+      mockDbState.sessions.push({
+        id: "sess-privacy-1",
+        code: "PRIV1234",
+        slot: 3,
+        status: "pending",
+        user_id: "user-owner-1",
+        vehicle_no: "MH02AB1234",
+        contact_email: "driver@example.com",
+        contact_phone: "+919876543210",
+        expires_at: new Date(Date.now() + 600000).toISOString(),
+      });
+
+      const req = new Request("https://example.com/api/public/session-public?code=PRIV1234");
+      const res = await sessionPublic(req);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.code).toBe("PRIV1234");
+      expect(data.slot).toBe(3);
+      expect(data.vehicle_no).toBeUndefined();
+      expect(data.contact_email).toBeUndefined();
+      expect(data.contact_phone).toBeUndefined();
+    });
+
+    it("sessionPublic reveals vehicle_no to verified session owner", async () => {
+      mockDbState.sessions.push({
+        id: "sess-privacy-2",
+        code: "PRIV5678",
+        slot: 4,
+        status: "active",
+        user_id: "user-owner-1",
+        vehicle_no: "KA01XY9999",
+        expires_at: new Date(Date.now() + 600000).toISOString(),
+      });
+
+      const req = new Request("https://example.com/api/public/session-public?code=PRIV5678", {
+        headers: { Authorization: "Bearer test-token-owner-1" },
+      });
+      const res = await sessionPublic(req);
+      expect(res.status).toBe(200);
+      const data = await res.json();
+
+      expect(data.vehicle_no).toBe("KA01XY9999");
+      expect(data.contact_email).toBeUndefined();
+      expect(data.contact_phone).toBeUndefined();
+    });
+
+    it("createOrder rejects non-owner attempting to update or pay for another user's session", async () => {
+      mockDbState.sessions.push({
+        id: "sess-owned-1",
+        code: "OWNED888",
+        slot: 1,
+        status: "pending",
+        user_id: "user-owner-1",
+        expires_at: new Date(Date.now() + 600000).toISOString(),
+      });
+
+      const req = new Request("https://example.com/api/public/create-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer test-token-attacker-2",
+        },
+        body: JSON.stringify({
+          code: "OWNED888",
+          duration_min: 30,
+          vehicle_no: "STOLEN123",
+          contact_email: "attacker@example.com",
+        }),
+      });
+
+      const res = await createOrder(req);
+      expect(res.status).toBe(403);
+      const data = await res.json();
+      expect(data.error).toContain("Session belongs to another user");
     });
   });
 });

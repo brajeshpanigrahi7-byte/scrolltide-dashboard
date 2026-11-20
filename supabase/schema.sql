@@ -139,6 +139,23 @@ CREATE TABLE IF NOT EXISTS public.user_roles (
 );
 
 -- 10. Role Verification Function (SECURITY DEFINER to avoid recursion in RLS)
+-- Single-argument version: always checks the caller's own role via auth.uid()
+CREATE OR REPLACE FUNCTION public.has_role(required_role text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = auth.uid() AND role = required_role
+  );
+END;
+$$;
+
+-- Overload for backwards compatibility: strictly prevents enumeration of other user roles
 CREATE OR REPLACE FUNCTION public.has_role(user_uuid uuid, required_role text)
 RETURNS boolean
 LANGUAGE plpgsql
@@ -147,16 +164,17 @@ SET search_path = public
 STABLE
 AS $$
 BEGIN
-  IF user_uuid IS NULL THEN
-    RETURN false;
+  IF user_uuid IS DISTINCT FROM auth.uid() THEN
+    RAISE EXCEPTION 'Access denied: Cannot query role for other users';
   END IF;
   RETURN EXISTS (
     SELECT 1 FROM public.user_roles
-    WHERE user_id = user_uuid AND role = required_role
+    WHERE user_id = auth.uid() AND role = required_role
   );
 END;
 $$;
 
+GRANT EXECUTE ON FUNCTION public.has_role(text) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.has_role(uuid, text) TO authenticated, anon;
 
 -- Grants & Row Level Security
@@ -184,84 +202,84 @@ REVOKE INSERT, UPDATE, DELETE ON public.payments FROM anon;
 DROP POLICY IF EXISTS admin_select_sessions ON public.sessions;
 DROP POLICY IF EXISTS user_select_sessions ON public.sessions;
 CREATE POLICY user_select_sessions ON public.sessions FOR SELECT TO authenticated
-  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (user_id = auth.uid() OR public.has_role('admin'));
 
 DROP POLICY IF EXISTS user_update_sessions ON public.sessions;
 CREATE POLICY user_update_sessions ON public.sessions FOR UPDATE TO authenticated
-  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'))
-  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (user_id = auth.uid() OR public.has_role('admin'))
+  WITH CHECK (user_id = auth.uid() OR public.has_role('admin'));
 
 DROP POLICY IF EXISTS user_delete_sessions ON public.sessions;
 CREATE POLICY user_delete_sessions ON public.sessions FOR DELETE TO authenticated
-  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (user_id = auth.uid() OR public.has_role('admin'));
 
 DROP POLICY IF EXISTS user_insert_sessions ON public.sessions;
 CREATE POLICY user_insert_sessions ON public.sessions FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  WITH CHECK (user_id = auth.uid() OR public.has_role('admin'));
 
 -- Row Level Security policies for parking_sessions
 DROP POLICY IF EXISTS operators_read_sessions ON public.parking_sessions;
 DROP POLICY IF EXISTS user_select_parking_sessions ON public.parking_sessions;
 CREATE POLICY user_select_parking_sessions ON public.parking_sessions FOR SELECT TO authenticated
-  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (user_id = auth.uid() OR public.has_role('admin'));
 
 DROP POLICY IF EXISTS user_update_parking_sessions ON public.parking_sessions;
 CREATE POLICY user_update_parking_sessions ON public.parking_sessions FOR UPDATE TO authenticated
-  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'))
-  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (user_id = auth.uid() OR public.has_role('admin'))
+  WITH CHECK (user_id = auth.uid() OR public.has_role('admin'));
 
 DROP POLICY IF EXISTS user_delete_parking_sessions ON public.parking_sessions;
 CREATE POLICY user_delete_parking_sessions ON public.parking_sessions FOR DELETE TO authenticated
-  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (user_id = auth.uid() OR public.has_role('admin'));
 
 DROP POLICY IF EXISTS user_insert_parking_sessions ON public.parking_sessions;
 CREATE POLICY user_insert_parking_sessions ON public.parking_sessions FOR INSERT TO authenticated
-  WITH CHECK (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  WITH CHECK (user_id = auth.uid() OR public.has_role('admin'));
 
 -- Row Level Security policies for payments
 DROP POLICY IF EXISTS admin_select_payments ON public.payments;
 DROP POLICY IF EXISTS user_select_payments ON public.payments;
 CREATE POLICY user_select_payments ON public.payments FOR SELECT TO authenticated
-  USING (user_id = auth.uid() OR public.has_role(auth.uid(), 'admin'));
+  USING (user_id = auth.uid() OR public.has_role('admin'));
 
 -- Authenticated admins can SELECT operational tables
 DROP POLICY IF EXISTS admin_select_devices ON public.devices;
-CREATE POLICY admin_select_devices ON public.devices FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY admin_select_devices ON public.devices FOR SELECT TO authenticated USING (public.has_role('admin'));
 
 DROP POLICY IF EXISTS admin_select_slots ON public.slots;
-CREATE POLICY admin_select_slots ON public.slots FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY admin_select_slots ON public.slots FOR SELECT TO authenticated USING (public.has_role('admin'));
 
 DROP POLICY IF EXISTS admin_select_telemetry ON public.device_telemetry;
-CREATE POLICY admin_select_telemetry ON public.device_telemetry FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY admin_select_telemetry ON public.device_telemetry FOR SELECT TO authenticated USING (public.has_role('admin'));
 
 DROP POLICY IF EXISTS admin_select_logs ON public.activity_logs;
-CREATE POLICY admin_select_logs ON public.activity_logs FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY admin_select_logs ON public.activity_logs FOR SELECT TO authenticated USING (public.has_role('admin'));
 
 DROP POLICY IF EXISTS admin_manage_settings ON public.settings;
-CREATE POLICY admin_manage_settings ON public.settings FOR ALL TO authenticated USING (public.has_role(auth.uid(), 'admin')) WITH CHECK (public.has_role(auth.uid(), 'admin'));
+CREATE POLICY admin_manage_settings ON public.settings FOR ALL TO authenticated USING (public.has_role('admin')) WITH CHECK (public.has_role('admin'));
 
 DROP POLICY IF EXISTS public_read_settings ON public.settings;
 CREATE POLICY public_read_settings ON public.settings FOR SELECT TO authenticated, anon USING (true);
 
 DROP POLICY IF EXISTS admin_select_roles ON public.user_roles;
-CREATE POLICY admin_select_roles ON public.user_roles FOR SELECT TO authenticated USING (public.has_role(auth.uid(), 'admin') OR auth.uid() = user_id);
+CREATE POLICY admin_select_roles ON public.user_roles FOR SELECT TO authenticated USING (public.has_role('admin') OR auth.uid() = user_id);
 
 -- device_commands RLS policies
 DROP POLICY IF EXISTS admins_insert_commands ON public.device_commands;
 CREATE POLICY admins_insert_commands ON public.device_commands
   FOR INSERT TO authenticated
-  WITH CHECK (public.has_role(auth.uid(), 'admin'));
+  WITH CHECK (public.has_role('admin'));
 
 DROP POLICY IF EXISTS admins_select_commands ON public.device_commands;
 CREATE POLICY admins_select_commands ON public.device_commands
   FOR SELECT TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'));
+  USING (public.has_role('admin'));
 
 DROP POLICY IF EXISTS admins_update_commands ON public.device_commands;
 CREATE POLICY admins_update_commands ON public.device_commands
   FOR UPDATE TO authenticated
-  USING (public.has_role(auth.uid(), 'admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'admin'));
+  USING (public.has_role('admin'))
+  WITH CHECK (public.has_role('admin'));
 
 DROP POLICY IF EXISTS anon_read_pending_commands ON public.device_commands;
 CREATE POLICY anon_read_pending_commands ON public.device_commands

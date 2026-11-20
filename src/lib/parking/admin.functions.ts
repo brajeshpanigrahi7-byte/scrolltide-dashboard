@@ -6,10 +6,9 @@ import { generateCode } from "./payments";
 export async function assertAdmin(context: { supabase: any; userId: string }) {
   if (!context?.userId) throw new Error("Authentication required");
 
-  // Check role using RPC has_role if available
+  // Check role using RPC has_role (1-arg version: checks auth.uid() server-side)
   try {
     const { data: hasRole, error: rpcErr } = await context.supabase.rpc("has_role", {
-      user_uuid: context.userId,
       required_role: "admin",
     });
     if (!rpcErr && typeof hasRole === "boolean") {

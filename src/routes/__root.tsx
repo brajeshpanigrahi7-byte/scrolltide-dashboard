@@ -16,6 +16,7 @@ import { ParkingProvider } from "@/lib/parking/store";
 import { AppShell } from "@/components/dash/AppShell";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SessionsProvider } from "@/lib/parking/sessions";
+import { AuthProvider } from "@/lib/auth-context";
 
 function NotFoundComponent() {
   return (
@@ -128,13 +129,15 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <TooltipProvider>
-        <ParkingProvider>
-          <SessionsProvider>
-            <AppShell>
-              <Outlet />
-            </AppShell>
-          </SessionsProvider>
-        </ParkingProvider>
+        <AuthProvider>
+          <ParkingProvider>
+            <SessionsProvider>
+              <AppShell>
+                <Outlet />
+              </AppShell>
+            </SessionsProvider>
+          </ParkingProvider>
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import { createAdminTestSession, adminCleanStaleSessions } from "@/lib/parking/admin.functions";
+import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -48,7 +49,15 @@ const rows: [string, string | number][] = [
 
 function SettingsPage() {
   const { mode, liveError, setDemoMode, state } = useParking();
+  const { user, openSignInModal } = useAuth();
   const [testLoading, setTestLoading] = useState(false);
+
+  // Trigger Sign In modal when visiting protected admin view in Live mode
+  useEffect(() => {
+    if (mode === "live" && !user) {
+      openSignInModal();
+    }
+  }, [mode, user, openSignInModal]);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [lastPayUrl, setLastPayUrl] = useState<string | null>(null);
