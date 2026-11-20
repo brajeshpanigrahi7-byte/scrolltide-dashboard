@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
     const res = await supabase
       .from("sessions")
       .select(
-        "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
+        "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
       )
       .eq("code", code)
       .maybeSingle();
@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
       const res = await supabase
         .from("sessions")
         .select(
-          "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
+          "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
         )
         .ilike("code", code)
         .maybeSingle();
@@ -55,14 +55,14 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Session not found" }, 404, corsHeaders);
   }
 
-  // Determine whether caller is owner or admin
+  // Determine whether caller is admin (sessions table has no user_id)
   let canSeePrivateFields = false;
   try {
     const { getAuthenticatedUser, isUserAdmin } = await import("../_shared/supabase.ts");
     const authUser = await getAuthenticatedUser(req);
-    const isOwner = authUser?.id != null && session.user_id === authUser.id;
-    const isAdmin = authUser?.id != null && !isOwner ? await isUserAdmin(authUser.id) : false;
-    canSeePrivateFields = isOwner || isAdmin;
+    if (authUser?.id) {
+      canSeePrivateFields = await isUserAdmin(authUser.id);
+    }
   } catch {}
 
   // Fetch settings for pricing and options

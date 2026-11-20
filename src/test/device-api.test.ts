@@ -606,6 +606,7 @@ describe("Driver Payment Page API", () => {
     expect(data.status).toBe("pending");
     expect(data.duration_options).toEqual([30, 60, 120, 180, 240]);
     expect(data.price).toBe(20);
+    expect(data.price_per_hour).toBe(20);
     // Sensitive fields not exposed
     expect(data.user_id).toBeUndefined();
     expect(data.driver_email).toBeUndefined();

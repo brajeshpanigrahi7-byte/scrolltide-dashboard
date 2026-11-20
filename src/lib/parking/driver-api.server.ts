@@ -184,7 +184,7 @@ export async function sessionPublic(request: Request): Promise<Response> {
     const res = await db
       .from("sessions")
       .select(
-        "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
+        "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
       )
       .eq("code", code)
       .maybeSingle();
@@ -197,7 +197,7 @@ export async function sessionPublic(request: Request): Promise<Response> {
       const res = await db
         .from("sessions")
         .select(
-          "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
+          "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
         )
         .ilike("code", code)
         .maybeSingle();
@@ -262,7 +262,7 @@ export async function sessionPublic(request: Request): Promise<Response> {
   let canSeePrivateFields = false;
   try {
     const authUser = await getAuthenticatedUser(request);
-    if (authUser?.id && session.user_id === authUser.id) {
+    if (authUser?.id && session.user_id && session.user_id === authUser.id) {
       canSeePrivateFields = true;
     } else if (authUser?.id) {
       canSeePrivateFields = await isUserAdmin(authUser.id);
@@ -344,7 +344,12 @@ export async function createOrder(request: Request): Promise<Response> {
   }
 
   // Look up session strictly in sessions table by exact code using Service Role client
-  let query = db.from("sessions").select("*").eq("code", code);
+  let query = db
+    .from("sessions")
+    .select(
+      "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, exit_signalled_at",
+    )
+    .eq("code", code);
   if (sessionId) {
     query = query.eq("id", sessionId);
   }
@@ -352,7 +357,13 @@ export async function createOrder(request: Request): Promise<Response> {
   let { data: session, error: sessErr } = await query.maybeSingle();
 
   if (!session) {
-    const ilikeRes = await db.from("sessions").select("*").ilike("code", code).maybeSingle();
+    const ilikeRes = await db
+      .from("sessions")
+      .select(
+        "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, exit_signalled_at",
+      )
+      .ilike("code", code)
+      .maybeSingle();
     session = ilikeRes.data;
   }
 
@@ -379,7 +390,6 @@ export async function createOrder(request: Request): Promise<Response> {
     }
 
     const sessionUpdates: Record<string, unknown> = {};
-    if (authUser?.id) sessionUpdates.user_id = authUser.id;
     if (body.vehicle_no) sessionUpdates.vehicle_no = body.vehicle_no.trim();
     if (body.contact_email) sessionUpdates.contact_email = body.contact_email.trim();
     if (body.contact_phone) sessionUpdates.contact_phone = body.contact_phone.trim();
@@ -432,7 +442,6 @@ export async function createOrder(request: Request): Promise<Response> {
 
   await db.from("payments").insert({
     session_id: session.id,
-    user_id: authUser?.id || null,
     razorpay_order_id: orderData.id,
     amount_paise: amountPaise,
     kind,
@@ -550,7 +559,7 @@ export async function leaveNow(request: Request): Promise<Response> {
 
   const db = await getAdminDb();
 
-  let query = db.from("sessions").select("id, slot, status, user_id, code");
+  let query = db.from("sessions").select("id, slot, status, code");
   if (code) query = query.eq("code", code);
   if (sessionId) query = query.eq("id", sessionId);
 
@@ -564,7 +573,7 @@ export async function leaveNow(request: Request): Promise<Response> {
     return json({ error: `Cannot trigger exit barrier: session is ${session.status}` }, 400);
   }
 
-  // Require matching user_id ownership verification
+  // Require matching user_id ownership verification if present on session
   if (session.user_id && session.user_id !== authUser.id) {
     const isAdmin = await isUserAdmin(authUser.id);
     if (!isAdmin) {
