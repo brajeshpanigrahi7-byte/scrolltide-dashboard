@@ -168,28 +168,30 @@ export async function sessionPublic(request: Request): Promise<Response> {
 
   const url = new URL(request.url);
   const rawCode = url.searchParams.get("code") || "";
-  const code = rawCode.trim();
+  const code = rawCode.trim().toUpperCase();
 
   if (!code) return json({ error: "Missing code parameter" }, 400);
 
   const db = await getAdminDb();
 
-  // Look up by code: case-insensitive (ILIKE) and trimmed
+  // Query the sessions table (where esp32-entry-1 inserts new 6-character codes like MYRX52),
+  // NOT parking_sessions. Use the server-side Supabase Service Role client for looking up
+  // a session by exact code so unauthenticated drivers scanning the QR code on their phone
+  // are not blocked by RLS.
   let session: any = null;
 
-  // 1. Try ILIKE in sessions table
   try {
     const res = await db
       .from("sessions")
       .select(
         "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
       )
-      .ilike("code", code)
+      .eq("code", code)
       .maybeSingle();
     session = res.data;
   } catch {}
 
-  // 2. Fallback to exact uppercase in sessions table
+  // Fallback to case-insensitive match on sessions table if exact match did not hit
   if (!session) {
     try {
       const res = await db
@@ -197,44 +199,9 @@ export async function sessionPublic(request: Request): Promise<Response> {
         .select(
           "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
         )
-        .eq("code", code.toUpperCase())
-        .maybeSingle();
-      if (res.data) session = res.data;
-    } catch {}
-  }
-
-  // 3. Fallback to parking_sessions table if sessions had no match
-  if (!session) {
-    try {
-      const res = await db
-        .from("parking_sessions")
-        .select("*")
         .ilike("code", code)
         .maybeSingle();
-      if (res.data) {
-        session = {
-          ...res.data,
-          amount_paise:
-            res.data.amount_paise ?? (res.data.amount_inr ? res.data.amount_inr * 100 : 0),
-        };
-      }
-    } catch {}
-  }
-
-  if (!session) {
-    try {
-      const res = await db
-        .from("parking_sessions")
-        .select("*")
-        .eq("code", code.toUpperCase())
-        .maybeSingle();
-      if (res.data) {
-        session = {
-          ...res.data,
-          amount_paise:
-            res.data.amount_paise ?? (res.data.amount_inr ? res.data.amount_inr * 100 : 0),
-        };
-      }
+      if (res.data) session = res.data;
     } catch {}
   }
 
@@ -302,7 +269,9 @@ export async function sessionPublic(request: Request): Promise<Response> {
     }
   } catch {}
 
-  // Safe fields returned: code, slot, status, duration options, and price. No login required.
+  // Safe fields returned: code, slot, status, duration options, and price.
+  // Sensitive fields (driver_email, driver_phone, user_id, contact_email, contact_phone) are strictly stripped.
+  // No login required for unauthenticated drivers scanning the QR code on their phone.
   return json({
     session_id: session.id,
     code: session.code,
@@ -327,11 +296,9 @@ export async function createOrder(request: Request): Promise<Response> {
     return json({ error: "Too many requests. Please slow down." }, 429);
   }
 
-  // Require valid user authentication before creating parking payment sessions
+  // Look up session in sessions by code using the Service Role client so drivers can initiate Razorpay payment without logging in.
+  // Optional auth: if user is logged in, attach their identity; otherwise allow anonymous driver payment.
   const authUser = await getAuthenticatedUser(request);
-  if (!authUser?.id) {
-    return json({ error: "Authentication required to create a payment session" }, 401);
-  }
 
   let body: {
     code?: string;
@@ -358,6 +325,7 @@ export async function createOrder(request: Request): Promise<Response> {
     return json({ error: "Missing required fields: code and duration_min" }, 400);
   }
 
+  // Service Role client bypasses RLS
   const db = await getAdminDb();
 
   const { data: settings } = await db
@@ -375,18 +343,23 @@ export async function createOrder(request: Request): Promise<Response> {
     return json({ error: `Duration must be one of: ${durationOptions.join(", ")}` }, 400);
   }
 
+  // Look up session strictly in sessions table by exact code using Service Role client
   let query = db.from("sessions").select("*").eq("code", code);
   if (sessionId) {
     query = query.eq("id", sessionId);
   }
 
-  const { data: session, error: sessErr } = await query.maybeSingle();
+  let { data: session, error: sessErr } = await query.maybeSingle();
+
+  if (!session) {
+    const ilikeRes = await db.from("sessions").select("*").ilike("code", code).maybeSingle();
+    session = ilikeRes.data;
+  }
 
   if (sessErr || !session) return json({ error: "Session not found" }, 404);
 
-  // If session already has an owner, verify caller is owner or admin.
-  // If session.user_id is null (first-time claim), allow any authenticated user to claim it.
-  if (session.user_id != null && session.user_id !== authUser.id) {
+  // If session already belongs to another authenticated user, protect ownership
+  if (authUser?.id && session.user_id != null && session.user_id !== authUser.id) {
     const isAdmin = await isUserAdmin(authUser.id);
     if (!isAdmin) {
       return json({ error: "Unauthorized: Session belongs to another user" }, 403);
@@ -405,13 +378,14 @@ export async function createOrder(request: Request): Promise<Response> {
       return json({ error: "Session has expired" }, 400);
     }
 
-    const sessionUpdates: Record<string, unknown> = {
-      user_id: authUser.id,
-    };
+    const sessionUpdates: Record<string, unknown> = {};
+    if (authUser?.id) sessionUpdates.user_id = authUser.id;
     if (body.vehicle_no) sessionUpdates.vehicle_no = body.vehicle_no.trim();
     if (body.contact_email) sessionUpdates.contact_email = body.contact_email.trim();
     if (body.contact_phone) sessionUpdates.contact_phone = body.contact_phone.trim();
-    await db.from("sessions").update(sessionUpdates).eq("id", session.id);
+    if (Object.keys(sessionUpdates).length > 0) {
+      await db.from("sessions").update(sessionUpdates).eq("id", session.id);
+    }
   } else if (kind === "extend") {
     if (session.status !== "active") {
       return json({ error: "Only active sessions can be extended" }, 400);
@@ -442,7 +416,7 @@ export async function createOrder(request: Request): Promise<Response> {
       receipt: code,
       notes: {
         session_id: session.id,
-        user_id: authUser.id,
+        user_id: authUser?.id || "unauthenticated-driver",
         code,
         kind,
         duration_min: String(durationMin),
@@ -458,7 +432,7 @@ export async function createOrder(request: Request): Promise<Response> {
 
   await db.from("payments").insert({
     session_id: session.id,
-    user_id: authUser.id,
+    user_id: authUser?.id || null,
     razorpay_order_id: orderData.id,
     amount_paise: amountPaise,
     kind,

@@ -424,18 +424,39 @@ describe("Job B Security Hardening", () => {
     });
   });
 
-  describe("Requirement 4: Valid User Authentication for Session Creation & Webhook-Exclusive Access Activation", () => {
-    it("rejects unauthenticated create-order with 401", async () => {
-      const req = new Request("https://example.com/api/public/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: "NEW88888", duration_min: 30 }),
+  describe("Requirement 4: Webhook-Exclusive Access Activation & Unauthenticated Driver Order Creation", () => {
+    it("allows unauthenticated create-order so drivers scanning QR can initiate payment without logging in", async () => {
+      mockDbState.sessions.push({
+        id: "sess-anon-order",
+        code: "NEW88888",
+        slot: 1,
+        status: "pending",
+        expires_at: new Date(Date.now() + 300_000).toISOString(),
       });
 
-      const res = await createOrder(req);
-      expect(res.status).toBe(401);
-      const data = await res.json();
-      expect(data.error).toBe("Authentication required to create a payment session");
+      const origFetch = globalThis.fetch;
+      vi.stubGlobal("fetch", async (url: string, init?: any) => {
+        if (typeof url === "string" && url.includes("api.razorpay.com")) {
+          return Response.json({ id: "order_mock_anon_123" }, { status: 200 });
+        }
+        return origFetch(url, init);
+      });
+
+      try {
+        const req = new Request("https://example.com/api/public/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code: "NEW88888", duration_min: 30 }),
+        });
+
+        const res = await createOrder(req);
+        expect(res.status).toBe(201);
+        const data = await res.json();
+        expect(data.order_id).toBe("order_mock_anon_123");
+        expect(data.amount).toBe(1000);
+      } finally {
+        vi.stubGlobal("fetch", origFetch);
+      }
     });
 
     it("verifyPayment validates cryptographic signature but does NOT activate parking access directly", async () => {

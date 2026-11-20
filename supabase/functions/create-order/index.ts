@@ -39,15 +39,9 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Too many requests. Please slow down." }, 429, corsHeaders);
   }
 
-  // Require valid user authentication before creating parking payment sessions
+  // Drivers can initiate Razorpay payment without logging in.
+  // Optional auth: if user is logged in, attach their identity.
   const authUser = await getAuthenticatedUser(req);
-  if (!authUser?.id) {
-    return jsonResponse(
-      { error: "Authentication required to create a payment session" },
-      401,
-      corsHeaders,
-    );
-  }
 
   let body: {
     code?: string;
@@ -114,7 +108,7 @@ Deno.serve(async (req) => {
   }
 
   // Ownership verification: if session already has an owner, verify caller is owner or admin
-  if (session.user_id != null && session.user_id !== authUser.id) {
+  if (authUser?.id && session.user_id != null && session.user_id !== authUser.id) {
     const isAdmin = await isUserAdmin(authUser.id);
     if (!isAdmin) {
       return jsonResponse(
@@ -142,13 +136,14 @@ Deno.serve(async (req) => {
     }
 
     // Save user_id ownership and optional vehicle_no, contact_email, contact_phone
-    const sessionUpdates: Record<string, unknown> = {
-      user_id: authUser.id,
-    };
+    const sessionUpdates: Record<string, unknown> = {};
+    if (authUser?.id) sessionUpdates.user_id = authUser.id;
     if (body.vehicle_no) sessionUpdates.vehicle_no = body.vehicle_no.trim();
     if (body.contact_email) sessionUpdates.contact_email = body.contact_email.trim();
     if (body.contact_phone) sessionUpdates.contact_phone = body.contact_phone.trim();
-    await supabase.from("sessions").update(sessionUpdates).eq("id", session.id);
+    if (Object.keys(sessionUpdates).length > 0) {
+      await supabase.from("sessions").update(sessionUpdates).eq("id", session.id);
+    }
   } else if (kind === "extend") {
     if (session.status !== "active") {
       return jsonResponse({ error: "Only active sessions can be extended" }, 400, corsHeaders);
@@ -182,7 +177,7 @@ Deno.serve(async (req) => {
       receipt: code,
       notes: {
         session_id: session.id,
-        user_id: authUser.id,
+        user_id: authUser?.id || "unauthenticated-driver",
         code: code,
         kind: kind,
         duration_min: String(durationMin),
@@ -203,7 +198,7 @@ Deno.serve(async (req) => {
   // 5. Insert payments row with user_id
   const { error: payErr } = await supabase.from("payments").insert({
     session_id: session.id,
-    user_id: authUser.id,
+    user_id: authUser?.id || null,
     razorpay_order_id: orderData.id,
     amount_paise: amountPaise,
     kind: kind,

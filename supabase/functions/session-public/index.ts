@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
 
   const url = new URL(req.url);
   const rawCode = url.searchParams.get("code") || "";
-  const code = rawCode.trim();
+  const code = rawCode.trim().toUpperCase();
 
   if (!code) {
     return jsonResponse({ error: "Missing code parameter" }, 400, corsHeaders);
@@ -20,7 +20,10 @@ Deno.serve(async (req) => {
 
   const supabase = getSupabaseAdmin();
 
-  // Case-insensitive trimmed lookup in sessions, fallback to parking_sessions
+  // Query the sessions table (where esp32-entry-1 inserts new 6-character codes like MYRX52),
+  // NOT parking_sessions. Use the server-side Supabase Service Role client for looking up
+  // a session by exact code so unauthenticated drivers scanning the QR code on their phone
+  // are not blocked by RLS.
   let session: any = null;
 
   try {
@@ -29,11 +32,12 @@ Deno.serve(async (req) => {
       .select(
         "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
       )
-      .ilike("code", code)
+      .eq("code", code)
       .maybeSingle();
     session = res.data;
   } catch {}
 
+  // Fallback to case-insensitive match on sessions table if exact match did not hit
   if (!session) {
     try {
       const res = await supabase
@@ -41,43 +45,9 @@ Deno.serve(async (req) => {
         .select(
           "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no, user_id",
         )
-        .eq("code", code.toUpperCase())
-        .maybeSingle();
-      if (res.data) session = res.data;
-    } catch {}
-  }
-
-  if (!session) {
-    try {
-      const res = await supabase
-        .from("parking_sessions")
-        .select("*")
         .ilike("code", code)
         .maybeSingle();
-      if (res.data) {
-        session = {
-          ...res.data,
-          amount_paise:
-            res.data.amount_paise ?? (res.data.amount_inr ? res.data.amount_inr * 100 : 0),
-        };
-      }
-    } catch {}
-  }
-
-  if (!session) {
-    try {
-      const res = await supabase
-        .from("parking_sessions")
-        .select("*")
-        .eq("code", code.toUpperCase())
-        .maybeSingle();
-      if (res.data) {
-        session = {
-          ...res.data,
-          amount_paise:
-            res.data.amount_paise ?? (res.data.amount_inr ? res.data.amount_inr * 100 : 0),
-        };
-      }
+      if (res.data) session = res.data;
     } catch {}
   }
 
@@ -144,7 +114,9 @@ Deno.serve(async (req) => {
     ? session.amount_paise / 100
     : session.amount_inr || 0;
 
-  // Safe fields returned: code, slot, status, duration options, and price. No login required.
+  // Safe fields returned: code, slot, status, duration options, and price.
+  // Sensitive fields (driver_email, driver_phone, user_id, contact_email, contact_phone) are strictly stripped.
+  // No login required for unauthenticated drivers scanning the QR code on their phone.
   return jsonResponse(
     {
       session_id: session.id,
