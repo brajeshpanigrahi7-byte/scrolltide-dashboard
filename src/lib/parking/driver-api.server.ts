@@ -184,11 +184,22 @@ export async function sessionPublic(request: Request): Promise<Response> {
     const res = await db
       .from("sessions")
       .select(
-        "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+        "id, code, slot_number, status, entry_time, exit_time, created_at, expires_at, due_amount_paise, vehicle_type, license_plate",
       )
       .eq("code", code)
       .maybeSingle();
-    session = res.data;
+    if (res.data && !res.error) {
+      session = res.data;
+    } else {
+      const fallback = await db
+        .from("sessions")
+        .select(
+          "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+        )
+        .eq("code", code)
+        .maybeSingle();
+      session = fallback.data;
+    }
   } catch {}
 
   // Fallback to case-insensitive match on sessions table if exact match did not hit
@@ -197,11 +208,22 @@ export async function sessionPublic(request: Request): Promise<Response> {
       const res = await db
         .from("sessions")
         .select(
-          "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+          "id, code, slot_number, status, entry_time, exit_time, created_at, expires_at, due_amount_paise, vehicle_type, license_plate",
         )
         .ilike("code", code)
         .maybeSingle();
-      if (res.data) session = res.data;
+      if (res.data && !res.error) {
+        session = res.data;
+      } else {
+        const fallback = await db
+          .from("sessions")
+          .select(
+            "id, code, slot, status, duration_min, amount_paise, created_at, expires_at, start_time, end_time, vehicle_no",
+          )
+          .ilike("code", code)
+          .maybeSingle();
+        session = fallback.data;
+      }
     } catch {}
   }
 
@@ -249,12 +271,15 @@ export async function sessionPublic(request: Request): Promise<Response> {
   }
 
   let secondsRemaining = 0;
-  if (session.end_time) {
-    const endMs = new Date(session.end_time).getTime();
+  const endTime = session.end_time || session.exit_time;
+  if (endTime) {
+    const endMs = new Date(endTime).getTime();
     secondsRemaining = Math.max(0, Math.floor((endMs - now) / 1000));
   }
 
-  const amountInr = session.amount_paise
+  const amountInr = session.due_amount_paise
+    ? session.due_amount_paise / 100
+    : session.amount_paise
     ? session.amount_paise / 100
     : session.amount_inr || 0;
 
@@ -275,7 +300,7 @@ export async function sessionPublic(request: Request): Promise<Response> {
   return json({
     session_id: session.id,
     code: session.code,
-    slot: session.slot,
+    slot: session.slot ?? session.slot_number,
     status,
     duration_options: durationOptions,
     duration_min: session.duration_min || 0,
@@ -285,7 +310,9 @@ export async function sessionPublic(request: Request): Promise<Response> {
     amount: amountInr,
     seconds_remaining: secondsRemaining,
     expires_in: expiresInSeconds,
-    vehicle_no: canSeePrivateFields ? session.vehicle_no || null : undefined,
+    vehicle_no: canSeePrivateFields
+      ? session.vehicle_no || session.license_plate || null
+      : undefined,
   });
 }
 
@@ -515,14 +542,15 @@ export async function verifyPayment(request: Request): Promise<Response> {
     return json({ error: "Order not found" }, 404);
   }
 
-  // NOTE: Parking access activation is moved out of client-side payment screen.
-  // Access is triggered exclusively via verified server-side payment webhook.
-  // verifyPayment confirms cryptographic signature validity without granting access directly.
+  const { markPaidServer } = await import("./payment-api.server");
+  const markRes = await markPaidServer(orderId, paymentId, payment.amount_paise);
+
   return json({
     ok: true,
     verified: true,
-    status: payment.status,
-    message: "Signature verified. Parking access activation is processed via server webhook.",
+    status: "captured",
+    result: markRes,
+    message: "Payment verified and session activated successfully.",
   });
 }
 

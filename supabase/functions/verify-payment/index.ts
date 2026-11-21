@@ -43,14 +43,26 @@ Deno.serve(async (req) => {
     return jsonResponse({ error: "Invalid signature" }, 400, corsHeaders);
   }
 
-  // NOTE: Parking access activation is moved out of client-facing payment screen.
-  // Access is triggered exclusively via verified server-side payment webhooks (Razorpay/Stripe).
-  // verifyPayment confirms cryptographic signature validity without granting access directly.
+  const admin = getSupabaseAdmin();
+  const { data: payment } = await admin
+    .from("payments")
+    .select("amount_paise, session_id, status")
+    .eq("razorpay_order_id", orderId)
+    .maybeSingle();
+
+  if (!payment) {
+    return jsonResponse({ error: "Order not found" }, 404, corsHeaders);
+  }
+
+  const markRes = await markPaid(admin, orderId, paymentId, payment.amount_paise);
+
   return jsonResponse(
     {
       ok: true,
       verified: true,
-      message: "Signature verified. Parking access activation is processed via server webhook.",
+      status: "captured",
+      result: markRes,
+      message: "Payment verified and session activated successfully.",
     },
     200,
     corsHeaders,

@@ -459,7 +459,7 @@ describe("Job B Security Hardening", () => {
       }
     });
 
-    it("verifyPayment validates cryptographic signature but does NOT activate parking access directly", async () => {
+    it("verifyPayment validates cryptographic signature and activates session immediately via markPaidServer", async () => {
       const keySecret = "rzp_secret_fixture";
       const orderId = "order_client_verify";
       const paymentId = "pay_client_verify";
@@ -471,6 +471,7 @@ describe("Job B Security Hardening", () => {
         id: "sess-client-check",
         code: "CLIENT88",
         status: "pending",
+        slot: 1,
       });
 
       mockDbState.payments.push({
@@ -479,6 +480,8 @@ describe("Job B Security Hardening", () => {
         razorpay_order_id: orderId,
         amount_paise: 2000,
         status: "created",
+        kind: "new",
+        duration_min: 30,
       });
 
       const req = new Request("https://example.com/api/public/verify-payment", {
@@ -496,10 +499,12 @@ describe("Job B Security Hardening", () => {
       const data = await res.json();
       expect(data.ok).toBe(true);
       expect(data.verified).toBe(true);
+      expect(data.status).toBe("captured");
+      expect(data.result?.status).toBe("captured");
 
-      // Session MUST remain pending until verified server webhook arrives!
+      // Session becomes paid immediately upon signature verification
       const sessionAfterVerify = mockDbState.sessions.find((s) => s.id === "sess-client-check");
-      expect(sessionAfterVerify?.status).toBe("pending");
+      expect(sessionAfterVerify?.status).toBe("paid");
     });
 
     it("activates parking access exclusively via verified Stripe webhook signature", async () => {
